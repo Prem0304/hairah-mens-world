@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HAIRAH Men's World | Luxury Sartorial Menswear</title>
+  
+  <!-- SEO Meta Tags -->
+  <meta name="description" content="Enter the world of HAIRAH Men's World. Discover bespoke luxury shirts, pants, and t-shirts tailored for the modern gentleman. Experience digital elegance and premium fits.">
+  <meta name="keywords" content="menswear, luxury shirts, tailored pants, pima cotton tshirts, bespoke fashion, luxury menswear, premium clothing">
+  
+  <!-- Font Awesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <!-- Custom Styling -->
+  <link rel="stylesheet" href="index.css">
+</head>
+<body>
+
+  <!-- Sticky Luxury Header -->
+  <header id="main-header">
+    <div class="nav-container">
+      <!-- Hamburger Menu for Mobile -->
+      <button class="nav-btn mobile-menu-btn" id="mobile-menu-toggle" aria-label="Toggle Menu">
+        <i class="fas fa-bars"></i>
+      </button>
+
+      <a href="#" class="logo" id="nav-logo" aria-label="HAIRAH MEN'S WORLD Home">
+        HAIRAH 
+        <div>
+          <span class="logo-sub">MEN'S WORLD</span>
+        </div>
+      </a>
+      
+      <!-- Primary Navigation -->
+      <nav class="nav-links-wrapper" id="main-nav-wrapper">
+        <ul id="nav-links">
+          <li class="active"><a href="#" data-page="home">Collections</a></li>
+          <li><a href="#" data-page="shop">Shop All</a></li>
+          <li><a href="#" data-page="wishlist">
+            Wishlist 
+            <span class="nav-badge" id="wishlist-badge" style="display: none;">0</span>
+          </a></li>
+          <li><a href="#" data-page="profile" id="nav-profile-link">Profile</a></li>
+        </ul>
+      </nav>
+      
+      <!-- Nav Actions -->
+      <div class="nav-actions">
+        <!-- Theme Toggle -->
+        <button class="nav-btn" id="theme-toggle-btn" title="Toggle Theme" aria-label="Toggle dark and light theme">
+          <i class="fas fa-sun" id="theme-sun-icon" style="display: none;"></i>
+          <i class="fas fa-moon" id="theme-moon-icon"></i>
+        </button>
+        
+        <!-- Cart Toggle -->
+        <button class="nav-btn" id="cart-toggle-btn" title="Shopping Cart" aria-label="Open wardrobe cart">
+          <i class="fas fa-shopping-bag"></i>
+          <span class="badge" id="cart-badge">0</span>
+        </button>
+
+        <!-- Auth Quick Button -->
+        <button class="btn btn-secondary auth-btn" id="header-auth-btn" title="Account Action">
+          Sign In
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Dynamic Content Area -->
+  <main id="app-container" class="fade-in">
+    <!-- Injected dynamically via index.js -->
+    <div class="loading-spinner-container">
+      <div class="spinner"></div>
+      <p style="margin-top: 1rem; font-family: var(--font-display); letter-spacing: 0.1em;">TAILORING WARDROBE...</p>
+    </div>
+  </main>
+
+  <!-- Shopping Cart Drawer Overlay -->
+  <div class="cart-drawer-backdrop" id="cart-drawer-backdrop"></div>
+  <div class="cart-drawer" id="cart-drawer">
+    <div class="cart-header">
+      <h3>Your Wardrobe</h3>
+      <button class="nav-btn" id="cart-close-btn" aria-label="Close cart"><i class="fas fa-times"></i></button>
+    </div>
+    
+    <div class="cart-items-list" id="cart-items-container">
+      <!-- Items dynamically populated -->
+    </div>
+    
+    <div class="cart-footer">
+      <div class="cart-total-row">
+        <span>Subtotal</span>
+        <span id="cart-subtotal">$0.00</span>
+      </div>
+      <button class="btn btn-primary" id="checkout-btn" style="width: 100%;">Proceed to Checkout</button>
+    </div>
+  </div>
+
+  <!-- Product Detail Page (PDP) Modal -->
+  <div class="modal-backdrop" id="pdp-modal">
+    <div class="modal-container">
+      <button class="modal-close" id="pdp-close-btn" aria-label="Close product details"><i class="fas fa-times"></i></button>
+      <div class="pdp-grid" id="pdp-content-container">
+        <!-- Rendered dynamically -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Wrapper -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <!-- Footer Section -->
+  <footer>
+    <div class="footer-grid">
+      <div class="footer-col footer-logo-desc">
+        <a href="#" class="logo" style="margin-bottom: 1.5rem;">HAIRAH <span class="logo-sub">MEN'S WORLD</span></a>
+        <p>Crafting bespoke digital elegance, tailored fittings, and luxury attire for the modern gentleman.</p>
+        <div style="display: flex; gap: 1rem; margin-top: 1.5rem;">
+          <a href="#" class="nav-btn" aria-label="Instagram"><i class="fab fa-instagram"></i></a>
+          <a href="#" class="nav-btn" aria-label="Facebook"><i class="fab fa-facebook-f"></i></a>
+          <a href="#" class="nav-btn" aria-label="Twitter"><i class="fab fa-twitter"></i></a>
+        </div>
+      </div>
+      
+      <div class="footer-col">
+        <h4>Collections</h4>
+        <ul>
+          <li><a href="#" class="page-link" data-page="shop" data-filter="shirts">Shirts</a></li>
+          <li><a href="#" class="page-link" data-page="shop" data-filter="pants">Pants</a></li>
+          <li><a href="#" class="page-link" data-page="shop" data-filter="tshirts">T-Shirts</a></li>
+        </ul>
+      </div>
+      
+      <div class="footer-col">
+        <h4>The Brand</h4>
+        <ul>
+          <li><a href="#" onclick="alert('Our story: Crafting luxury menswear since 2018 with absolute focus on textile quality and minimal design.'); return false;">Our Story</a></li>
+          <li><a href="#" onclick="alert('Craftsmanship: Every stitch is placed with precision using high-grade fabrics sourced globally.'); return false;">Craftsmanship</a></li>
+          <li><a href="#" onclick="alert('Sustainability: We partner with certified mills that respect both workforce and planet.'); return false;">Sartorial Quality</a></li>
+        </ul>
+      </div>
+      
+      <div class="footer-col">
+        <h4>Subscribe</h4>
+        <p style="margin-bottom: 1.5rem; font-size: 0.9rem;">Join our members list for exclusive previews of seasonal releases.</p>
+        <form onsubmit="event.preventDefault(); alert('Thank you for subscribing to HAIRAH Men\'s World newsletter.'); this.reset();" class="search-input-wrapper">
+          <input type="email" class="search-input" placeholder="Your email address" required aria-label="Email for newsletter">
+          <button type="submit" class="search-btn" style="color: var(--color-accent-gold);" aria-label="Submit newsletter"><i class="fas fa-paper-plane"></i></button>
+        </form>
+      </div>
+    </div>
+    
+    <div class="footer-bottom">
+      <p>&copy; 2026 HAIRAH Men's World. All Rights Reserved. Designed for elegance.</p>
+      <div style="display: flex; gap: 2rem;">
+        <a href="#" onclick="alert('Privacy Policy: We protect your data and do not share it with third parties.'); return false;">Privacy Policy</a>
+        <a href="#" onclick="alert('Terms & Conditions: Standard ecommerce and luxury fitting service conditions apply.'); return false;">Terms & Conditions</a>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Application Logic -->
+  <script src="index.js"></script>
+</body>
+</html>
