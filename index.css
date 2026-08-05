@@ -1681,7 +1681,8 @@ input:checked + .slider:before {
     margin-bottom: 4rem;
   }
   .products-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1.5rem;
   }
   .feature-ribbon-grid {
     grid-template-columns: 1fr;
@@ -2034,5 +2035,77 @@ footer {
   .admin-order-detail-grid {
     grid-template-columns: 1fr;
     gap: 1.25rem;
+  }
+}
+
+/* --- Premium Mobile UI Polish --- */
+@media (max-width: 576px) {
+  .modal-container {
+    padding: 1.5rem 1rem !important;
+    max-height: 95vh !important;
+    width: 95vw !important;
+    border-radius: 8px !important;
+  }
+  .modal-close {
+    top: 1rem !important;
+    right: 1rem !important;
+    width: 36px !important;
+    height: 36px !important;
+    font-size: 1rem !important;
+  }
+  .pdp-title {
+    font-size: 1.6rem !important;
+  }
+  .pdp-price {
+    font-size: 1.25rem !important;
+    margin-bottom: 1.5rem !important;
+  }
+  .form-row {
+    grid-template-columns: 1fr !important;
+    gap: 1rem !important;
+  }
+  .products-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 1rem !important;
+  }
+  .product-info h3 {
+    font-size: 0.8rem !important;
+  }
+  .product-price {
+    font-size: 0.85rem !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .nav-container {
+    padding: 0 1rem !important;
+  }
+  .nav-actions {
+    gap: 0.75rem !important;
+  }
+  .logo {
+    font-size: 1.15rem !important;
+    letter-spacing: 0.12em !important;
+  }
+  .logo-sub {
+    font-size: 0.5rem !important;
+    letter-spacing: 0.3em !important;
+  }
+  .nav-btn {
+    width: 36px !important;
+    height: 36px !important;
+    font-size: 1rem !important;
+  }
+  .hero {
+    height: 75vh !important;
+    min-height: 450px !important;
+    padding: 1.5rem !important;
+  }
+  .hero-title {
+    font-size: 1.8rem !important;
+  }
+  .hero-tagline {
+    font-size: 0.75rem !important;
+    letter-spacing: 0.3em !important;
   }
 }
