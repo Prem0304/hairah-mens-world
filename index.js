@@ -31,10 +31,18 @@ let pdpModal, pdpContentContainer, toastContainer, headerAuthBtn, mobileMenuTogg
 
 // --- API Request Helper ---
 async function apiCall(endpoint, method = 'GET', body = null) {
+  let url = endpoint;
+  if (method === 'GET') {
+    const separator = url.includes('?') ? '&' : '?';
+    url = `${url}${separator}_t=${Date.now()}`;
+  }
+
   const options = {
     method,
     headers: {
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-cache',
+      'Pragma': 'no-cache'
     },
     credentials: 'include' // Crucial for session cookies
   };
@@ -44,7 +52,7 @@ async function apiCall(endpoint, method = 'GET', body = null) {
   }
   
   try {
-    const response = await fetch(endpoint, options);
+    const response = await fetch(url, options);
     const result = await response.json();
     if (!response.ok) {
       throw new Error(result.error || 'API call failed');
@@ -1398,6 +1406,10 @@ window.openPDP = async function(productId) {
   const product = PRODUCT_CATALOG.find(p => p.id === productId);
   if (!product) return;
   
+  // Enforce sold out status if all sizes are out of stock
+  const totalStock = Object.values(product.sizes_stock || {}).reduce((sum, s) => sum + s, 0);
+  product.inStock = totalStock > 0 && product.inStock;
+  
   state.selectedProduct = product;
   
   // A. Load reviews dynamically from backend
@@ -1570,14 +1582,37 @@ window.addPDPToCart = function() {
   const product = state.selectedProduct;
   if (!product) return;
 
+  const totalStock = Object.values(product.sizes_stock || {}).reduce((sum, s) => sum + s, 0);
+  if (totalStock <= 0 || !product.inStock) {
+    showToast("This product is completely sold out.");
+    return;
+  }
+
   const colorElement = pdpContentContainer.querySelector(".color-option.active");
   const sizeElement = pdpContentContainer.querySelector(".size-btn.active");
   
+  if (!sizeElement) {
+    showToast("Please select a size.");
+    return;
+  }
+
   const color = colorElement ? colorElement.getAttribute("data-color-name") : product.colors[0].name;
-  const size = sizeElement ? sizeElement.getAttribute("data-size") : (product.sizes.find(s => (product.sizes_stock?.[s] ?? 0) > 0) || product.sizes[0]);
+  const size = sizeElement.getAttribute("data-size");
+  
+  const stock = product.sizes_stock?.[size] ?? 0;
+  if (stock <= 0) {
+    showToast(`Size ${size} is currently out of stock.`);
+    return;
+  }
   
   const key = `${product.id}-${color}-${size}`;
   const existingItemIndex = state.cart.findIndex(item => item.key === key);
+  
+  const currentCartQty = existingItemIndex > -1 ? state.cart[existingItemIndex].qty : 0;
+  if (currentCartQty + 1 > stock) {
+    showToast(`Cannot add more. Only ${stock} unit(s) of size ${size} available.`);
+    return;
+  }
   
   if (existingItemIndex > -1) {
     state.cart[existingItemIndex].qty += 1;
@@ -1801,6 +1836,17 @@ function renderCartDrawerItems() {
 window.updateQty = function(itemKey, amount) {
   const index = state.cart.findIndex(item => item.key === itemKey);
   if (index === -1) return;
+  
+  const cartItem = state.cart[index];
+  const product = PRODUCT_CATALOG.find(p => p.id === cartItem.id);
+  
+  if (product && amount > 0) {
+    const stockAvailable = product.sizes_stock?.[cartItem.size] ?? 0;
+    if (cartItem.qty + amount > stockAvailable) {
+      showToast(`Cannot increase quantity. Only ${stockAvailable} unit(s) of size ${cartItem.size} available.`);
+      return;
+    }
+  }
   
   state.cart[index].qty += amount;
   if (state.cart[index].qty <= 0) {

@@ -548,6 +548,12 @@ def create_order(customer_email, recipient_name, address, city, phone, total, it
                 
             # Decrement stock
             cursor.execute('UPDATE product_sizes_stock SET stock = stock - ? WHERE product_id = ? AND size = ?', (qty, p_id, size))
+            
+            # Sync products.in_stock status based on remaining size-stock sum
+            cursor.execute('SELECT SUM(stock) FROM product_sizes_stock WHERE product_id = ?', (p_id,))
+            total_stock = cursor.fetchone()[0] or 0
+            in_stock_val = 1 if total_stock > 0 else 0
+            cursor.execute('UPDATE products SET in_stock = ? WHERE id = ?', (in_stock_val, p_id))
 
         # B. Insert order record
         cursor.execute('''
@@ -644,6 +650,13 @@ def update_size_stock(product_id, size, stock):
         INSERT OR REPLACE INTO product_sizes_stock (product_id, size, stock)
         VALUES (?, ?, ?)
     ''', (product_id, size, stock))
+    
+    # Sync products.in_stock status based on new size-stock sum
+    cursor.execute('SELECT SUM(stock) FROM product_sizes_stock WHERE product_id = ?', (product_id,))
+    total_stock = cursor.fetchone()[0] or 0
+    in_stock_val = 1 if total_stock > 0 else 0
+    cursor.execute('UPDATE products SET in_stock = ? WHERE id = ?', (in_stock_val, product_id))
+    
     conn.commit()
     conn.close()
 
