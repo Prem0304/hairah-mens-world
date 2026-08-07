@@ -137,6 +137,8 @@ def init_db():
             gateway_type TEXT DEFAULT 'Simulated',
             razorpay_key_id TEXT,
             razorpay_key_secret TEXT,
+            stripe_publishable_key TEXT,
+            stripe_secret_key TEXT,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
@@ -149,6 +151,14 @@ def init_db():
         cursor.execute("ALTER TABLE merchant_payment_settings ADD COLUMN gateway_type TEXT DEFAULT 'Simulated'")
         cursor.execute("ALTER TABLE merchant_payment_settings ADD COLUMN razorpay_key_id TEXT")
         cursor.execute("ALTER TABLE merchant_payment_settings ADD COLUMN razorpay_key_secret TEXT")
+        conn.commit()
+
+    # Database Migration: add stripe keys to merchant_payment_settings
+    try:
+        cursor.execute("SELECT stripe_publishable_key FROM merchant_payment_settings LIMIT 1")
+    except sqlite3.OperationalError:
+        cursor.execute("ALTER TABLE merchant_payment_settings ADD COLUMN stripe_publishable_key TEXT")
+        cursor.execute("ALTER TABLE merchant_payment_settings ADD COLUMN stripe_secret_key TEXT")
         conn.commit()
     
     # Database Migration: Update numeric sizes to S, M, L, XL
@@ -637,6 +647,24 @@ def update_size_stock(product_id, size, stock):
     conn.commit()
     conn.close()
 
+def delete_product(product_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # A. Delete reviews for this product
+        cursor.execute('DELETE FROM reviews WHERE product_id = ?', (product_id,))
+        # B. Delete sizes stock records
+        cursor.execute('DELETE FROM product_sizes_stock WHERE product_id = ?', (product_id,))
+        # C. Delete product
+        cursor.execute('DELETE FROM products WHERE id = ?', (product_id,))
+        conn.commit()
+        return True
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        conn.close()
+
 def get_merchant_settings():
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -644,7 +672,12 @@ def get_merchant_settings():
     row = cursor.fetchone()
     conn.close()
     if row:
-        return dict(row)
+        r_dict = dict(row)
+        if 'stripe_publishable_key' not in r_dict:
+            r_dict['stripe_publishable_key'] = ''
+        if 'stripe_secret_key' not in r_dict:
+            r_dict['stripe_secret_key'] = ''
+        return r_dict
     return {
         "upi_id": "hairah@upi",
         "account_holder": "HAIRAH MEN'S WORLD",
@@ -652,15 +685,17 @@ def get_merchant_settings():
         "account_number": "9876543210",
         "gateway_type": "Simulated",
         "razorpay_key_id": "",
-        "razorpay_key_secret": ""
+        "razorpay_key_secret": "",
+        "stripe_publishable_key": "",
+        "stripe_secret_key": ""
     }
 
-def save_merchant_settings(upi_id, account_holder, bank_name, account_number, gateway_type='Simulated', razorpay_key_id='', razorpay_key_secret=''):
+def save_merchant_settings(upi_id, account_holder, bank_name, account_number, gateway_type='Simulated', razorpay_key_id='', razorpay_key_secret='', stripe_publishable_key='', stripe_secret_key=''):
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute('''
-        INSERT OR REPLACE INTO merchant_payment_settings (id, upi_id, account_holder, bank_name, account_number, gateway_type, razorpay_key_id, razorpay_key_secret, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-    ''', ('merchant_config', upi_id, account_holder, bank_name, account_number, gateway_type, razorpay_key_id, razorpay_key_secret))
+        INSERT OR REPLACE INTO merchant_payment_settings (id, upi_id, account_holder, bank_name, account_number, gateway_type, razorpay_key_id, razorpay_key_secret, stripe_publishable_key, stripe_secret_key, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    ''', ('merchant_config', upi_id, account_holder, bank_name, account_number, gateway_type, razorpay_key_id, razorpay_key_secret, stripe_publishable_key, stripe_secret_key))
     conn.commit()
     conn.close()

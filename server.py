@@ -280,6 +280,17 @@ def api_add_product():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/products/<product_id>', methods=['DELETE'])
+def api_delete_product(product_id):
+    if session.get('user_role') != 'admin':
+        return jsonify({"error": "Forbidden"}), 403
+        
+    try:
+        database.delete_product(product_id)
+        return jsonify({"message": f"Product '{product_id}' deleted successfully"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/api/products/size-stock', methods=['POST'])
 def api_update_size_stock():
     if session.get('user_role') != 'admin':
@@ -405,15 +416,65 @@ def api_add_review():
 
 # --- Payments Gateway Endpoints ---
 
+def check_items_stock(items):
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+    try:
+        for item in items:
+            p_id = item.get('id')
+            size = str(item.get('size'))
+            qty = int(item.get('qty', 1))
+            
+            cursor.execute('SELECT stock FROM product_sizes_stock WHERE product_id = ? AND size = ?', (p_id, size))
+            stock_row = cursor.fetchone()
+            if not stock_row:
+                return f"Sizing stock record not found for {item.get('title', 'Product')} (Size: {size})"
+            if stock_row['stock'] < qty:
+                return f"Insufficient stock for size {size} of '{item.get('title', 'Product')}'. Only {stock_row['stock']} unit(s) available."
+        return None
+    except Exception as e:
+        return f"Stock verification failed: {str(e)}"
+    finally:
+        conn.close()
+
 @app.route('/api/payments/create-intent', methods=['POST'])
 def api_create_payment_intent():
     data = request.json
-    if not data or 'total' not in data:
-        return jsonify({"error": "Missing total amount"}), 400
+    if not data or 'total' not in data or 'items' not in data:
+        return jsonify({"error": "Missing total amount or cart items"}), 400
         
+    stock_error = check_items_stock(data['items'])
+    if stock_error:
+        return jsonify({"error": stock_error}), 400
+        
+    config = database.get_merchant_settings()
+    gateway = config.get('gateway_type', 'Simulated')
+    
+    if gateway == 'Stripe' and config.get('stripe_secret_key'):
+        try:
+            import stripe
+            stripe.api_key = config.get('stripe_secret_key').strip()
+            # Stripe amounts are in cents / paise
+            stripe_amount = int(round(float(data['total']) * 100))
+            intent = stripe.PaymentIntent.create(
+                amount=stripe_amount,
+                currency="inr",
+                automatic_payment_methods={"enabled": True}
+            )
+            return jsonify({
+                "gatewayType": "Stripe",
+                "clientSecret": intent.client_secret,
+                "publishableKey": config.get('stripe_publishable_key'),
+                "amount": float(data['total'])
+            }), 200
+        except Exception as e:
+            return jsonify({"error": f"Failed to initialize Stripe session: {str(e)}"}), 500
+            
+    # Fallback to Simulated Mode
     import uuid
     intent_secret = f"pi_{uuid.uuid4().hex[:16]}_secret_{uuid.uuid4().hex[:16]}"
     return jsonify({
+        "gatewayType": "Simulated",
         "clientSecret": intent_secret,
         "amount": float(data['total'])
     }), 200
@@ -481,15 +542,21 @@ def api_save_merchant_config():
         account_number=data['accountNumber'].strip(),
         gateway_type=data.get('gatewayType', 'Simulated').strip(),
         razorpay_key_id=data.get('razorpayKeyId', '').strip(),
-        razorpay_key_secret=data.get('razorpayKeySecret', '').strip()
+        razorpay_key_secret=data.get('razorpayKeySecret', '').strip(),
+        stripe_publishable_key=data.get('stripePublishableKey', '').strip(),
+        stripe_secret_key=data.get('stripeSecretKey', '').strip()
     )
     return jsonify({"message": "Merchant payment settings saved successfully"}), 200
 
 @app.route('/api/payments/razorpay-order', methods=['POST'])
 def api_create_razorpay_order():
     data = request.json
-    if not data or 'total' not in data:
-        return jsonify({"error": "Missing total amount"}), 400
+    if not data or 'total' not in data or 'items' not in data:
+        return jsonify({"error": "Missing total amount or cart items"}), 400
+        
+    stock_error = check_items_stock(data['items'])
+    if stock_error:
+        return jsonify({"error": stock_error}), 400
         
     total = float(data['total'])
     config = database.get_merchant_settings()

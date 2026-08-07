@@ -270,6 +270,14 @@ window.navigate = function(view) {
   state.currentView = view;
   window.history.pushState({ view }, "", `#${view}`);
   
+  // Close any open drawers or modals to ensure scrolling is never stuck
+  closeCartDrawer();
+  closePDPModal();
+  if (window.closeStripeModal) window.closeStripeModal();
+  if (window.closeMockRzpModal) window.closeMockRzpModal();
+  if (window.closeAdminOrderDetailModal) window.closeAdminOrderDetailModal();
+  document.body.style.overflow = ""; // Hard reset scroll lock
+  
   // Update nav menu active styles
   document.getElementById("nav-links").querySelectorAll("li").forEach(li => {
     const a = li.querySelector("a");
@@ -306,6 +314,7 @@ async function renderCurrentView() {
     appContainer.innerHTML = getWishlistTemplate();
   } else if (state.currentView === "checkout") {
     appContainer.innerHTML = getCheckoutTemplate();
+    setupCheckoutValidationListeners();
   } else if (state.currentView === "login") {
     appContainer.innerHTML = getLoginTemplate();
   } else if (state.currentView === "profile") {
@@ -549,17 +558,35 @@ function getCheckoutTemplate() {
     `;
   }
 
-  const itemsHtml = state.cart.map(item => `
-    <div class="summary-item" style="margin-bottom: 1.5rem; border-bottom: 1px solid var(--color-border); padding-bottom: 1.2rem;">
-      <div style="flex-grow:1; padding-right:1rem;">
-        <div style="font-weight: 500; font-size: 0.95rem; color: var(--color-text-main);">${item.title}</div>
-        <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.3rem; text-transform: uppercase; letter-spacing: 0.05em;">
-          Size: ${item.size} | Color: ${item.color} | Qty: ${item.qty}
+  let hasStockIssue = false;
+
+  const itemsHtml = state.cart.map(item => {
+    const check = getCartItemStockStatus(item);
+    let itemWarning = '';
+    if (check.status === 'out') {
+      hasStockIssue = true;
+      itemWarning = `<div style="color: var(--color-danger); font-size: 0.75rem; font-weight: 600; margin-top: 0.3rem;"><i class="fas fa-exclamation-triangle"></i> Out of Stock</div>`;
+    } else if (check.status === 'insufficient') {
+      hasStockIssue = true;
+      itemWarning = `<div style="color: var(--color-accent-gold); font-size: 0.75rem; font-weight: 600; margin-top: 0.3rem;"><i class="fas fa-exclamation-circle"></i> Only ${check.max} left in stock</div>`;
+    } else if (check.status === 'invalid') {
+      hasStockIssue = true;
+      itemWarning = `<div style="color: var(--color-danger); font-size: 0.75rem; font-weight: 600; margin-top: 0.3rem;"><i class="fas fa-exclamation-triangle"></i> Sizing unavailable</div>`;
+    }
+    
+    return `
+      <div class="summary-item" style="margin-bottom: 1.5rem; border-bottom: 1px solid var(--color-border); padding-bottom: 1.2rem;">
+        <div style="flex-grow:1; padding-right:1rem;">
+          <div style="font-weight: 500; font-size: 0.95rem; color: var(--color-text-main);">${item.title}</div>
+          <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.3rem; text-transform: uppercase; letter-spacing: 0.05em;">
+            Size: ${item.size} | Qty: ${item.qty}
+          </div>
+          ${itemWarning}
         </div>
+        <div style="font-family: var(--font-display); font-weight: 500; color: var(--color-accent-gold);">₹${(item.price * item.qty).toFixed(2)}</div>
       </div>
-      <div style="font-family: var(--font-display); font-weight: 500; color: var(--color-accent-gold);">₹${(item.price * item.qty).toFixed(2)}</div>
-    </div>
-  `).join('');
+    `;
+  }).join('');
 
   const subtotal = state.cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
   const vat = subtotal * 0.05;
@@ -569,9 +596,26 @@ function getCheckoutTemplate() {
   const cName = state.currentUser ? state.currentUser.name : '';
   const cEmail = state.currentUser ? state.currentUser.email : '';
 
+  let warningBanner = '';
+  if (hasStockIssue) {
+    warningBanner = `
+      <div class="glass-panel" style="background-color: rgba(220, 53, 69, 0.15); border: 1px solid var(--color-danger); border-radius: 8px; padding: 1.5rem; margin-bottom: 2.5rem; display: flex; gap: 1rem; align-items: flex-start;">
+        <i class="fas fa-exclamation-triangle" style="color: var(--color-danger); font-size: 1.5rem; margin-top: 0.1rem;"></i>
+        <div>
+          <h4 style="color: var(--color-text-main); margin: 0 0 0.5rem 0; font-family: var(--font-display); font-size: 0.95rem; text-transform: uppercase; font-weight: 600;">Stock Verification Alert</h4>
+          <p style="font-size: 0.85rem; color: var(--color-text-muted); margin: 0; line-height: 1.5;">
+            One or more items in your cart are currently out of stock or have insufficient quantities. Please return to your wardrobe cart to adjust quantities before placing this order.
+          </p>
+        </div>
+      </div>
+    `;
+  }
+
   return `
     <div class="checkout-layout">
       <h2 style="font-size: 2.2rem; margin-bottom: 3.5rem; text-align: center; font-weight: 300;">Sartorial Checkout</h2>
+      
+      ${warningBanner}
       
       <div class="checkout-grid">
         <div class="glass-panel" style="padding: 3rem; background-color: var(--color-bg-card);">
@@ -586,6 +630,7 @@ function getCheckoutTemplate() {
               <div class="form-group">
                 <label>Email Address</label>
                 <input type="email" class="form-input" id="co-email" value="${cEmail}" required>
+                <span id="co-email-err" style="font-size: 0.7rem; color: var(--color-danger); display: block; margin-top: 0.35rem; min-height: 1rem; font-weight: 500;"></span>
               </div>
             </div>
             
@@ -597,11 +642,23 @@ function getCheckoutTemplate() {
             <div class="form-row">
               <div class="form-group">
                 <label>City & Country</label>
-                <input type="text" class="form-input" id="co-city" required>
+                <input type="text" class="form-input" id="co-city" placeholder="e.g. Mumbai, India" required>
               </div>
               <div class="form-group">
-                <label>Contact Phone</label>
-                <input type="tel" class="form-input" id="co-phone" placeholder="+1 (555) 000-0000" required>
+                <label>Zip / PIN Code</label>
+                <input type="text" class="form-input" id="co-zip" placeholder="e.g. 400001" maxlength="6" required>
+                <span id="co-zip-err" style="font-size: 0.7rem; color: var(--color-danger); display: block; margin-top: 0.35rem; min-height: 1rem; font-weight: 500;"></span>
+              </div>
+            </div>
+            
+            <div class="form-row">
+              <div class="form-group">
+                <label>Contact Phone (India)</label>
+                <input type="tel" class="form-input" id="co-phone" placeholder="e.g. +91 98765 43210" required>
+                <span id="co-phone-err" style="font-size: 0.7rem; color: var(--color-danger); display: block; margin-top: 0.35rem; min-height: 1rem; font-weight: 500;"></span>
+              </div>
+              <div class="form-group" style="opacity: 0; pointer-events: none; height: 0; padding: 0; margin: 0;">
+                <!-- Alignment helper -->
               </div>
             </div>
             
@@ -610,8 +667,8 @@ function getCheckoutTemplate() {
               Payments are securely encrypted and processed via Stripe Gateway, supporting card networks and instant UPI app scans.
             </p>
             
-            <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 1rem; padding: 1.25rem; font-weight:600; text-transform:uppercase; letter-spacing:0.05em;">
-              Proceed to secure payment
+            <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 1rem; padding: 1.25rem; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; ${hasStockIssue ? 'opacity: 0.5; cursor: not-allowed;' : ''}" ${hasStockIssue ? 'disabled' : ''}>
+              ${hasStockIssue ? 'Resolve Stock Issues to Pay' : 'Proceed to secure payment'}
             </button>
           </form>
         </div>
@@ -715,7 +772,7 @@ function getProfileTemplate() {
   } else {
     ordersHtml = myOrders.map(o => {
       const orderItems = o.items.map(item => 
-        `<li>${item.title} <span style="color: var(--color-text-muted); font-size: 0.8rem;">(Qty ${item.qty} | Size ${item.size} | Color ${item.color})</span></li>`
+        `<li>${item.title} <span style="color: var(--color-text-muted); font-size: 0.8rem;">(Qty ${item.qty} | Size ${item.size})</span></li>`
       ).join('');
       
       return `
@@ -766,25 +823,149 @@ function getProfileTemplate() {
   `;
 }
 
+// Helper to convert '2026-08-06' to 'August 06, 2026'
+function formatJSDateToDbString(dateStr) {
+  if (!dateStr) return '';
+  const parts = dateStr.split('-');
+  if (parts.length !== 3) return dateStr;
+  const year = parts[0];
+  const monthIdx = parseInt(parts[1], 10) - 1;
+  const day = parts[2];
+  
+  const monthNames = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"
+  ];
+  const monthName = monthNames[monthIdx];
+  return `${monthName} ${day}, ${year}`;
+}
+
+// Helper to parse database date like "August 03, 2026" or "July 28, 2026" to a standard JS Date object
+function parseDbDateToJSDate(dbStr) {
+  if (!dbStr) return new Date();
+  const monthNames = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"
+  ];
+  const cleanStr = dbStr.replace(',', '').trim();
+  const parts = cleanStr.split(/\s+/);
+  if (parts.length !== 3) return new Date();
+  const monthName = parts[0];
+  const day = parseInt(parts[1], 10);
+  const year = parseInt(parts[2], 10);
+  const monthIdx = monthNames.findIndex(m => m.toLowerCase() === monthName.toLowerCase());
+  if (monthIdx === -1) return new Date();
+  return new Date(year, monthIdx, day, 0, 0, 0, 0);
+}
+
+// Helper to format JS Date object to premium display string (e.g. "03 Aug 2026")
+function formatJSDateToDisplayString(dateObj) {
+  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const day = String(dateObj.getDate()).padStart(2, '0');
+  const month = monthNames[dateObj.getMonth()];
+  const year = dateObj.getFullYear();
+  return `${day} ${month} ${year}`;
+}
+
 // 7. Admin Dashboard Template
 function getAdminTemplate() {
-  const totalRevenue = state.orders.reduce((sum, o) => sum + o.total, 0);
-  const totalOrders = state.orders.length;
-  const totalUsers = state.users.length;
+  if (!state.adminFilterDate) {
+    const offset = new Date().getTimezoneOffset();
+    const localToday = new Date(new Date().getTime() - (offset * 60 * 1000));
+    state.adminFilterDate = localToday.toISOString().split('T')[0];
+  }
+  if (!state.adminFilterMonth) {
+    state.adminFilterMonth = new Date().toISOString().slice(0, 7);
+  }
+  if (!state.adminFilterStartDate) {
+    state.adminFilterStartDate = new Date().toISOString().split('T')[0];
+  }
+  if (!state.adminFilterEndDate) {
+    state.adminFilterEndDate = new Date().toISOString().split('T')[0];
+  }
+  if (!state.adminMetricView) {
+    state.adminMetricView = 'daily';
+  }
   
-  const categorySales = { shirts: 0, pants: 0, tshirts: 0 };
-  state.orders.forEach(o => {
-    o.items.forEach(item => {
-      const product = PRODUCT_CATALOG.find(p => p.id === item.product_id);
-      if (product) {
-        categorySales[product.category] += item.qty;
-      }
+  let filteredOrders = [];
+  let revenueTitle = '';
+  let ordersTitle = '';
+  
+  if (state.adminMetricView === 'daily') {
+    const filterDateDbStr = formatJSDateToDbString(state.adminFilterDate);
+    filteredOrders = state.orders.filter(o => {
+      if (!o.date) return false;
+      const cleanDbDate = o.date.toLowerCase().replace(/\b0(\d)\b/g, '$1').trim();
+      const cleanFilterDate = filterDateDbStr.toLowerCase().replace(/\b0(\d)\b/g, '$1').trim();
+      return cleanDbDate === cleanFilterDate;
     });
-  });
+    revenueTitle = `Daily Gross Revenue (${filterDateDbStr})`;
+    ordersTitle = `Daily Orders (${filterDateDbStr})`;
+    
+  } else if (state.adminMetricView === 'weekly') {
+    const refDate = new Date(state.adminFilterDate + 'T00:00:00');
+    const dayOfWeek = refDate.getDay();
+    const startOfWeek = new Date(refDate);
+    startOfWeek.setDate(refDate.getDate() - dayOfWeek);
+    startOfWeek.setHours(0,0,0,0);
+    
+    const endOfWeek = new Date(startOfWeek);
+    endOfWeek.setDate(startOfWeek.getDate() + 6);
+    endOfWeek.setHours(23,59,59,999);
+    
+    filteredOrders = state.orders.filter(o => {
+      const oDate = parseDbDateToJSDate(o.date);
+      return oDate >= startOfWeek && oDate <= endOfWeek;
+    });
+    
+    const startStr = formatJSDateToDisplayString(startOfWeek);
+    const endStr = formatJSDateToDisplayString(endOfWeek);
+    revenueTitle = `Weekly Gross Revenue (${startStr} - ${endStr})`;
+    ordersTitle = `Weekly Orders (${startStr} - ${endStr})`;
+    
+  } else if (state.adminMetricView === 'monthly') {
+    const parts = state.adminFilterMonth.split('-');
+    const filterYear = parseInt(parts[0], 10);
+    const filterMonth = parseInt(parts[1], 10) - 1;
+    
+    filteredOrders = state.orders.filter(o => {
+      const oDate = parseDbDateToJSDate(o.date);
+      return oDate.getFullYear() === filterYear && oDate.getMonth() === filterMonth;
+    });
+    
+    const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+    const monthName = monthNames[filterMonth] || 'Month';
+    revenueTitle = `Monthly Gross Revenue (${monthName} ${filterYear})`;
+    ordersTitle = `Monthly Orders (${monthName} ${filterYear})`;
+    
+  } else if (state.adminMetricView === 'custom') {
+    const start = new Date(state.adminFilterStartDate + 'T00:00:00');
+    const end = new Date(state.adminFilterEndDate + 'T23:59:59');
+    
+    filteredOrders = state.orders.filter(o => {
+      const oDate = parseDbDateToJSDate(o.date);
+      return oDate >= start && oDate <= end;
+    });
+    
+    const startStr = formatJSDateToDisplayString(start);
+    const endStr = formatJSDateToDisplayString(end);
+    revenueTitle = `Custom Range Gross Revenue (${startStr} - ${endStr})`;
+    ordersTitle = `Custom Range Orders (${startStr} - ${endStr})`;
+    
+  } else {
+    // total (lifetime)
+    filteredOrders = state.orders;
+    revenueTitle = 'Lifetime Gross Revenue';
+    ordersTitle = 'Total Orders';
+  }
   
-  const topCategory = Object.keys(categorySales).reduce((a, b) => categorySales[a] > categorySales[b] ? a : b);
-
-  const ordersRows = state.orders.map(o => {
+  // Cache for export utility
+  state.lastFilteredOrders = filteredOrders;
+  
+  const revenueValue = filteredOrders.reduce((sum, o) => sum + o.total, 0);
+  const ordersValue = filteredOrders.length;
+  
+  const ordersRows = filteredOrders.map(o => {
     const itemsLabel = o.items.map(item => `${item.title} (x${item.qty})`).join(', ');
     const paymentLabel = `Method: ${o.payment_method || 'Card'}\nTx ID: ${o.payment_id || 'N/A'}`;
     
@@ -810,7 +991,7 @@ function getAdminTemplate() {
       </tr>
     `;
   }).join('');
-
+  
   const customersRows = state.users.map(u => `
     <tr>
       <td style="font-weight:600;">${u.name}</td>
@@ -850,7 +1031,7 @@ function getAdminTemplate() {
             </div>
             
             <!-- Visibility switch -->
-            <div style="display:flex; align-items:center; gap:0.8rem;">
+            <div style="display:flex; align-items:center; gap:0.8rem; margin-right:1.5rem;">
               <label style="margin:0; font-size:0.7rem;">Visibility:</label>
               <span style="font-size:0.75rem; font-weight:600; min-width:65px; text-transform:uppercase;">
                 ${p.isVisible ? '<span style="color:var(--color-success);">Visible</span>' : '<span style="color:var(--color-text-muted);">Hidden</span>'}
@@ -860,6 +1041,11 @@ function getAdminTemplate() {
                 <span class="slider"></span>
               </label>
             </div>
+            
+            <!-- Delete button -->
+            <button class="btn btn-secondary" onclick="handleAdminDeleteProduct('${p.id}', '${p.title.replace(/'/g, "\\'")}')" style="font-size:0.7rem; padding:0.4rem 0.8rem; margin:0; border-color:var(--color-danger); color:var(--color-danger); background: transparent;">
+              <i class="fas fa-trash-alt"></i> Delete
+            </button>
           </div>
         </div>
 
@@ -879,27 +1065,28 @@ function getAdminTemplate() {
       <div class="admin-header">
         <div>
           <h2 style="font-size: 2.2rem; font-weight: 300; letter-spacing:0.02em;">Sartorial Management Portal</h2>
-          <p style="color: var(--color-text-muted); font-size: 0.95rem; margin-top:0.5rem;">Admin session active. View sales metrics, full order registries, and attire inventory control.</p>
+          <p style="color: var(--color-text-muted); font-size: 0.95rem; margin-top:0.5rem;">Admin session active. View sales metrics, daily order registries, and attire inventory control.</p>
         </div>
         <button class="btn btn-secondary" onclick="handleLogout()">Exit Portal</button>
       </div>
       
-      <div class="admin-stats-ribbon">
-        <div class="stat-card">
-          <span class="stat-card-title">Gross Revenue</span>
-          <span class="stat-card-value">₹${totalRevenue.toFixed(2)}</span>
+      <div class="admin-stats-ribbon" style="grid-template-columns: repeat(2, 1fr);">
+        <div class="stat-card" style="position: relative;">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 0.5rem;">
+            <span class="stat-card-title">${revenueTitle}</span>
+            <select onchange="handleAdminChangeMetricsView(this.value)" style="background: rgba(255,255,255,0.05); border: 1px solid var(--color-border); color: var(--color-text-main); font-size: 0.75rem; border-radius: 4px; padding: 0.2rem 0.5rem; outline: none; cursor: pointer; font-weight: 500; font-family: inherit;">
+              <option value="daily" ${state.adminMetricView === 'daily' ? 'selected' : ''}>Daily</option>
+              <option value="weekly" ${state.adminMetricView === 'weekly' ? 'selected' : ''}>Weekly</option>
+              <option value="monthly" ${state.adminMetricView === 'monthly' ? 'selected' : ''}>Monthly</option>
+              <option value="custom" ${state.adminMetricView === 'custom' ? 'selected' : ''}>Custom Range</option>
+              <option value="total" ${state.adminMetricView === 'total' ? 'selected' : ''}>Lifetime</option>
+            </select>
+          </div>
+          <span class="stat-card-value">₹${revenueValue.toFixed(2)}</span>
         </div>
         <div class="stat-card">
-          <span class="stat-card-title">Total Orders</span>
-          <span class="stat-card-value">${totalOrders}</span>
-        </div>
-        <div class="stat-card">
-          <span class="stat-card-title">Active Members</span>
-          <span class="stat-card-value">${totalUsers}</span>
-        </div>
-        <div class="stat-card">
-          <span class="stat-card-title">Top Category</span>
-          <span class="stat-card-value" style="text-transform:uppercase; font-size: 1.6rem; margin-top:0.5rem;">${topCategory}</span>
+          <span class="stat-card-title">${ordersTitle}</span>
+          <span class="stat-card-value">${ordersValue}</span>
         </div>
       </div>
       
@@ -911,7 +1098,45 @@ function getAdminTemplate() {
       </div>
       
       <div id="admin-pane-stats" style="display: ${state.adminActiveTab === 'stats' ? 'block' : 'none'};">
-        <h3 style="font-size: 1.25rem; margin-bottom: 2rem; letter-spacing:0.05em;">Placed Attire Orders</h3>
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 2rem;">
+          <h3 style="font-size: 1.25rem; margin: 0; letter-spacing:0.05em;">Placed Attire Orders</h3>
+          
+          <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
+            <!-- Date picker filter daily/weekly -->
+            ${state.adminMetricView === 'daily' || state.adminMetricView === 'weekly' ? `
+              <div style="display: flex; align-items: center; gap: 0.5rem; background: var(--color-bg-card); border: 1px solid var(--color-border); padding: 0.5rem 1rem; border-radius: 4px;">
+                <label for="admin-orders-date-filter" style="margin: 0; font-size: 0.75rem; font-weight: 600; color: var(--color-accent-gold);">
+                  ${state.adminMetricView === 'daily' ? 'Select Date:' : 'Week Containing:'}
+                </label>
+                <input type="date" id="admin-orders-date-filter" value="${state.adminFilterDate}" onchange="handleAdminChangeDateFilter(this.value)" oninput="handleAdminChangeDateFilter(this.value)" style="background: transparent; border: none; color: var(--color-text-main); font-size: 0.8rem; font-family: inherit; outline: none; cursor: pointer;">
+              </div>
+            ` : ''}
+            
+            <!-- Month filter -->
+            ${state.adminMetricView === 'monthly' ? `
+              <div style="display: flex; align-items: center; gap: 0.5rem; background: var(--color-bg-card); border: 1px solid var(--color-border); padding: 0.5rem 1rem; border-radius: 4px;">
+                <label for="admin-orders-month-filter" style="margin: 0; font-size: 0.75rem; font-weight: 600; color: var(--color-accent-gold);">Select Month:</label>
+                <input type="month" id="admin-orders-month-filter" value="${state.adminFilterMonth}" onchange="handleAdminChangeMonthFilter(this.value)" style="background: transparent; border: none; color: var(--color-text-main); font-size: 0.8rem; font-family: inherit; outline: none; cursor: pointer;">
+              </div>
+            ` : ''}
+            
+            <!-- Custom Date Range picker -->
+            ${state.adminMetricView === 'custom' ? `
+              <div style="display: flex; align-items: center; gap: 0.5rem; background: var(--color-bg-card); border: 1px solid var(--color-border); padding: 0.5rem 1rem; border-radius: 4px;">
+                <label style="margin: 0; font-size: 0.75rem; font-weight: 600; color: var(--color-accent-gold);">Range:</label>
+                <input type="date" id="admin-orders-start-filter" value="${state.adminFilterStartDate}" onchange="handleAdminChangeStartDateFilter(this.value)" style="background: transparent; border: none; color: var(--color-text-main); font-size: 0.8rem; font-family: inherit; outline: none; cursor: pointer; width:115px;">
+                <span style="font-size:0.8rem; color:var(--color-text-muted);">to</span>
+                <input type="date" id="admin-orders-end-filter" value="${state.adminFilterEndDate}" onchange="handleAdminChangeEndDateFilter(this.value)" style="background: transparent; border: none; color: var(--color-text-main); font-size: 0.8rem; font-family: inherit; outline: none; cursor: pointer; width:115px;">
+              </div>
+            ` : ''}
+            
+            <!-- Download Button -->
+            <button class="btn btn-secondary" onclick="downloadDailyOrdersCSV()" style="font-size:0.75rem; padding:0.6rem 1.2rem; display:flex; gap:0.5rem; align-items:center; margin:0; background-color: var(--color-bg-card);">
+              <i class="fas fa-download" style="color: var(--color-accent-gold);"></i> Download CSV
+            </button>
+          </div>
+        </div>
+
         <div class="admin-table-wrapper">
           <table class="admin-table">
             <thead>
@@ -926,7 +1151,7 @@ function getAdminTemplate() {
               </tr>
             </thead>
             <tbody>
-              ${ordersRows.length === 0 ? `<tr><td colspan="7" style="text-align:center; padding:3rem; color:var(--color-text-muted);">No orders registered.</td></tr>` : ordersRows}
+              ${ordersRows.length === 0 ? `<tr><td colspan="7" style="text-align:center; padding:5rem; color:var(--color-text-muted); font-style:italic;">No orders registered for this date.</td></tr>` : ordersRows}
             </tbody>
           </table>
         </div>
@@ -978,9 +1203,9 @@ function getAdminTemplate() {
                 <label>Available Sizes (comma-separated)</label>
                 <input type="text" class="form-input" id="new-prod-sizes" required placeholder="e.g. S, M, L, XL or 30, 32, 34, 36">
               </div>
-              <div class="form-group">
-                <label>Available Colors (format Name:Hex, separated by commas)</label>
-                <input type="text" class="form-input" id="new-prod-colors" required placeholder="e.g. Ink Black:#121212, Off-White:#FAF8F5">
+              <div class="form-group" style="display:none;">
+                <label>Available Colors</label>
+                <input type="hidden" id="new-prod-colors" value="Standard:#C5A880">
               </div>
             </div>
 
@@ -1041,7 +1266,8 @@ function getAdminTemplate() {
               <label>Select Payment Gateway</label>
               <select class="form-input" id="admin-gateway-type" onchange="toggleAdminGatewayFields(this)" style="background-color: var(--color-bg-input); border: 1px solid var(--color-border); color: var(--color-text-main); font-size: 0.85rem; cursor: pointer;">
                 <option value="Simulated" ${state.merchantConfig?.gateway_type === 'Simulated' ? 'selected' : ''}>Simulated Portal (Stripe / UPI UTR verification)</option>
-                <option value="Razorpay" ${state.merchantConfig?.gateway_type === 'Razorpay' ? 'selected' : ''}>Razorpay (Real payment checkouts)</option>
+                <option value="Stripe" ${state.merchantConfig?.gateway_type === 'Stripe' ? 'selected' : ''}>Stripe (Real checkouts)</option>
+                <option value="Razorpay" ${state.merchantConfig?.gateway_type === 'Razorpay' ? 'selected' : ''}>Razorpay (Real checkouts)</option>
               </select>
             </div>
             
@@ -1053,6 +1279,17 @@ function getAdminTemplate() {
               <div class="form-group" style="margin-bottom: 1.5rem;">
                 <label>Razorpay Key Secret</label>
                 <input type="password" class="form-input" id="admin-rzp-secret" value="${state.merchantConfig?.razorpay_key_secret || ''}" placeholder="Key Secret Value">
+              </div>
+            </div>
+
+            <div id="admin-stripe-credentials" style="display: ${state.merchantConfig?.gateway_type === 'Stripe' ? 'block' : 'none'}; border-top: 1px dashed var(--color-border); padding-top: 1.5rem; margin-bottom: 1.5rem;">
+              <div class="form-group" style="margin-bottom: 1.5rem;">
+                <label>Stripe Publishable Key</label>
+                <input type="text" class="form-input" id="admin-stripe-pub-key" value="${state.merchantConfig?.stripe_publishable_key || ''}" placeholder="pk_test_xxxxxx">
+              </div>
+              <div class="form-group" style="margin-bottom: 1.5rem;">
+                <label>Stripe Secret Key</label>
+                <input type="password" class="form-input" id="admin-stripe-secret-key" value="${state.merchantConfig?.stripe_secret_key || ''}" placeholder="sk_test_xxxxxx">
               </div>
             </div>
 
@@ -1213,7 +1450,7 @@ window.openPDP = async function(productId) {
           ${product.features.map(f => `<li>${f}</li>`).join('')}
         </ul>
 
-        <div class="pdp-selector-group">
+        <div class="pdp-selector-group" style="display:none;">
           <div class="selector-title">Select Color</div>
           <div class="color-palette">
             ${product.colors.map((c, i) => `
@@ -1459,6 +1696,21 @@ function updateCartBadge() {
   }
 }
 
+function getCartItemStockStatus(item) {
+  const product = PRODUCT_CATALOG.find(p => p.id === item.id);
+  if (!product) return { status: 'invalid', message: 'Product not found', max: 0 };
+  
+  const sizeStock = product.sizes_stock?.[item.size];
+  if (sizeStock === undefined) return { status: 'invalid', message: 'Size not available', max: 0 };
+  
+  if (sizeStock <= 0) {
+    return { status: 'out', message: 'Out of Stock', max: 0 };
+  } else if (sizeStock < item.qty) {
+    return { status: 'insufficient', message: `Only ${sizeStock} units left`, max: sizeStock };
+  }
+  return { status: 'ok', message: 'In Stock', max: sizeStock };
+}
+
 function renderCartDrawerItems() {
   if (state.cart.length === 0) {
     cartItemsContainer.innerHTML = `
@@ -1472,30 +1724,78 @@ function renderCartDrawerItems() {
     return;
   }
 
-  const itemsHtml = state.cart.map(item => `
-    <div class="cart-item">
-      <img src="${item.image}" alt="${item.title}" class="cart-item-img">
-      <div class="cart-item-details">
-        <h4 class="cart-item-title">${item.title}</h4>
-        <div class="cart-item-meta">Size: ${item.size} | Color: ${item.color}</div>
-        <div class="cart-item-price">₹${item.price.toFixed(2)}</div>
-        
-        <div class="cart-item-actions">
-          <div class="qty-controls">
-            <span class="qty-btn" onclick="updateQty('${item.key}', -1)"><i class="fas fa-minus"></i></span>
-            <span class="qty-val">${item.qty}</span>
-            <span class="qty-btn" onclick="updateQty('${item.key}', 1)"><i class="fas fa-plus"></i></span>
+  let hasStockIssue = false;
+
+  const itemsHtml = state.cart.map(item => {
+    const check = getCartItemStockStatus(item);
+    let warningHtml = '';
+    let itemClass = 'cart-item';
+    
+    if (check.status === 'out') {
+      hasStockIssue = true;
+      itemClass += ' cart-item-out-of-stock';
+      warningHtml = `
+        <div style="color: var(--color-danger); font-size: 0.75rem; font-weight: 600; margin-top: 0.4rem; display: flex; align-items: center; gap: 0.3rem;">
+          <i class="fas fa-exclamation-triangle"></i> Out of Stock
+        </div>
+      `;
+    } else if (check.status === 'insufficient') {
+      hasStockIssue = true;
+      warningHtml = `
+        <div style="color: var(--color-accent-gold); font-size: 0.75rem; font-weight: 600; margin-top: 0.4rem; display: flex; align-items: center; gap: 0.3rem;">
+          <i class="fas fa-exclamation-circle"></i> Only ${check.max} left in stock
+        </div>
+      `;
+    } else if (check.status === 'invalid') {
+      hasStockIssue = true;
+      warningHtml = `
+        <div style="color: var(--color-danger); font-size: 0.75rem; font-weight: 600; margin-top: 0.4rem; display: flex; align-items: center; gap: 0.3rem;">
+          <i class="fas fa-exclamation-triangle"></i> Sizing unavailable
+        </div>
+      `;
+    }
+
+    return `
+      <div class="${itemClass}">
+        <img src="${item.image}" alt="${item.title}" class="cart-item-img">
+        <div class="cart-item-details">
+          <h4 class="cart-item-title">${item.title}</h4>
+          <div class="cart-item-meta">Size: ${item.size}</div>
+          <div class="cart-item-price">₹${item.price.toFixed(2)}</div>
+          ${warningHtml}
+          <div class="cart-item-actions">
+            <div class="qty-controls">
+              <span class="qty-btn" onclick="updateQty('${item.key}', -1)"><i class="fas fa-minus"></i></span>
+              <span class="qty-val">${item.qty}</span>
+              <span class="qty-btn" onclick="updateQty('${item.key}', 1)"><i class="fas fa-plus"></i></span>
+            </div>
+            <span class="remove-item-btn" onclick="removeCartItem('${item.key}')"><i class="fas fa-trash-alt"></i> Remove</span>
           </div>
-          <span class="remove-item-btn" onclick="removeCartItem('${item.key}')"><i class="fas fa-trash-alt"></i> Remove</span>
         </div>
       </div>
-    </div>
-  `).join('');
+    `;
+  }).join('');
 
   cartItemsContainer.innerHTML = itemsHtml;
   
   const subtotal = state.cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
   cartSubtotal.innerText = `₹${subtotal.toFixed(2)}`;
+
+  // Disable / Enable Proceed to Checkout button
+  const checkoutBtn = document.getElementById("checkout-btn");
+  if (checkoutBtn) {
+    if (hasStockIssue) {
+      checkoutBtn.disabled = true;
+      checkoutBtn.style.opacity = '0.5';
+      checkoutBtn.style.cursor = 'not-allowed';
+      checkoutBtn.innerHTML = 'Resolve Stock Issues to Checkout';
+    } else {
+      checkoutBtn.disabled = false;
+      checkoutBtn.style.opacity = '1';
+      checkoutBtn.style.cursor = 'pointer';
+      checkoutBtn.innerHTML = 'Proceed to Checkout';
+    }
+  }
 }
 
 window.updateQty = function(itemKey, amount) {
@@ -1617,6 +1917,166 @@ window.handleSaveSizing = async function(event) {
 
 // --- Checkout Placement & Payment Gateway ---
 
+function setupCheckoutValidationListeners() {
+  const emailInput = document.getElementById('co-email');
+  const phoneInput = document.getElementById('co-phone');
+  const zipInput = document.getElementById('co-zip');
+  const nameInput = document.getElementById('co-name');
+  const addressInput = document.getElementById('co-address');
+  const cityInput = document.getElementById('co-city');
+  const submitButton = document.querySelector('#checkout-form button[type="submit"]');
+
+  if (!emailInput || !phoneInput || !zipInput || !submitButton) return;
+
+  const validationStatus = {
+    email: false,
+    phone: false,
+    zip: false
+  };
+
+  function updateUIFeedback(inputElement, errorElement, isValid, errorMessage) {
+    if (isValid) {
+      inputElement.style.borderColor = 'var(--color-success)';
+      inputElement.style.boxShadow = '0 0 5px rgba(82, 196, 26, 0.2)';
+      if (errorElement) {
+        errorElement.innerText = '✓ Looks perfect';
+        errorElement.style.color = 'var(--color-success)';
+      }
+    } else {
+      inputElement.style.borderColor = 'var(--color-danger)';
+      inputElement.style.boxShadow = '0 0 5px rgba(255, 77, 79, 0.2)';
+      if (errorElement) {
+        errorElement.innerText = errorMessage;
+        errorElement.style.color = 'var(--color-danger)';
+      }
+    }
+  }
+
+  function validateEmail() {
+    const emailVal = emailInput.value.trim();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const isValid = emailRegex.test(emailVal);
+    validationStatus.email = isValid;
+    updateUIFeedback(emailInput, document.getElementById('co-email-err'), isValid, 'Please enter a valid email address.');
+    checkFormValidity();
+  }
+
+  function validateZip() {
+    zipInput.value = zipInput.value.replace(/\D/g, '');
+    const zipVal = zipInput.value.trim();
+    const isValid = /^\d{6}$/.test(zipVal);
+    validationStatus.zip = isValid;
+    
+    let msg = '';
+    if (zipVal.length === 0) {
+      msg = 'PIN code is required.';
+    } else if (zipVal.length < 6) {
+      msg = 'PIN code must be exactly 6 digits.';
+    } else {
+      msg = '';
+    }
+    
+    updateUIFeedback(zipInput, document.getElementById('co-zip-err'), isValid, msg);
+    checkFormValidity();
+  }
+
+  function validatePhone() {
+    let phoneVal = phoneInput.value;
+    const cleanDigits = phoneVal.replace(/[^\d+]/g, '');
+    
+    if (cleanDigits.length === 0) {
+      phoneInput.value = '';
+      validationStatus.phone = false;
+      updateUIFeedback(phoneInput, document.getElementById('co-phone-err'), false, 'Contact phone is required.');
+      checkFormValidity();
+      return;
+    }
+
+    let prefix = '';
+    let digitsOnly = '';
+    
+    if (cleanDigits.startsWith('+91')) {
+      prefix = '+91';
+      digitsOnly = cleanDigits.slice(3);
+    } else if (cleanDigits.startsWith('91') && cleanDigits.length > 10) {
+      prefix = '+91';
+      digitsOnly = cleanDigits.slice(2);
+    } else {
+      prefix = '+91';
+      digitsOnly = cleanDigits.replace(/^\+/, '');
+    }
+    
+    digitsOnly = digitsOnly.replace(/\D/g, '').slice(0, 10);
+    
+    let formattedVal = '';
+    if (digitsOnly.length > 5) {
+      formattedVal = `${prefix} ${digitsOnly.slice(0, 5)} ${digitsOnly.slice(5)}`;
+    } else if (digitsOnly.length > 0) {
+      formattedVal = `${prefix} ${digitsOnly}`;
+    } else {
+      formattedVal = prefix;
+    }
+    
+    phoneInput.value = formattedVal;
+    
+    const isPrefixValid = prefix === '+91';
+    const isLengthValid = digitsOnly.length === 10;
+    const isStartingDigitValid = /^[6789]/.test(digitsOnly);
+    
+    const isValid = isPrefixValid && isLengthValid && isStartingDigitValid;
+    validationStatus.phone = isValid;
+    
+    let msg = '';
+    if (!isLengthValid) {
+      msg = 'Phone number must contain a 10-digit mobile number.';
+    } else if (!isStartingDigitValid) {
+      msg = 'Invalid mobile number. Must start with 6, 7, 8, or 9.';
+    } else if (!isPrefixValid) {
+      msg = 'Indian mobile format required (+91).';
+    }
+    
+    updateUIFeedback(phoneInput, document.getElementById('co-phone-err'), isValid, msg);
+    checkFormValidity();
+  }
+
+  function checkFormValidity() {
+    const isCartValid = state.cart.length > 0;
+    const hasName = nameInput.value.trim().length > 0;
+    const hasAddress = addressInput.value.trim().length > 0;
+    const hasCity = cityInput.value.trim().length > 0;
+    
+    const allInputsValid = validationStatus.email && validationStatus.phone && validationStatus.zip && hasName && hasAddress && hasCity;
+    
+    if (allInputsValid && isCartValid) {
+      submitButton.disabled = false;
+      submitButton.style.opacity = '1';
+      submitButton.style.cursor = 'pointer';
+      submitButton.innerText = 'Proceed to secure payment';
+    } else {
+      submitButton.disabled = true;
+      submitButton.style.opacity = '0.5';
+      submitButton.style.cursor = 'not-allowed';
+      if (!isCartValid) {
+        submitButton.innerText = 'Cart is empty';
+      } else {
+        submitButton.innerText = 'Complete form to proceed';
+      }
+    }
+  }
+
+  emailInput.addEventListener('input', validateEmail);
+  phoneInput.addEventListener('input', validatePhone);
+  zipInput.addEventListener('input', validateZip);
+  nameInput.addEventListener('input', checkFormValidity);
+  addressInput.addEventListener('input', checkFormValidity);
+  cityInput.addEventListener('input', checkFormValidity);
+
+  if (emailInput.value) validateEmail();
+  if (phoneInput.value) validatePhone();
+  if (zipInput.value) validateZip();
+  checkFormValidity();
+}
+
 window.handlePlaceOrder = async function(event) {
   event.preventDefault();
   
@@ -1624,7 +2084,10 @@ window.handlePlaceOrder = async function(event) {
   const recipientEmail = document.getElementById("co-email").value.trim().toLowerCase();
   const addressVal = document.getElementById("co-address").value;
   const cityVal = document.getElementById("co-city").value;
+  const zipVal = document.getElementById("co-zip") ? document.getElementById("co-zip").value.trim() : '';
   const phoneVal = document.getElementById("co-phone").value;
+  
+  const finalAddress = zipVal ? `${addressVal} (PIN: ${zipVal})` : addressVal;
   
   const subtotal = state.cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
   const vat = subtotal * 0.05;
@@ -1650,13 +2113,14 @@ window.handlePlaceOrder = async function(event) {
       
       // 1. Create Razorpay Order on server
       const orderRes = await apiCall('/api/payments/razorpay-order', 'POST', {
-        total: grandTotal
+        total: grandTotal,
+        items: state.cart
       });
       
       const orderPayload = {
         recipientName,
         recipientEmail,
-        address: addressVal,
+        address: finalAddress,
         city: cityVal,
         phone: phoneVal,
         total: grandTotal,
@@ -1710,31 +2174,52 @@ window.handlePlaceOrder = async function(event) {
     }
   } 
   
-  // B. IF SIMULATED PORTAL (STRIPE / UPI UTR VERIFICATION) IS ACTIVE
+  // B. IF SIMULATED OR STRIPE CHECKOUT PORTAL IS ACTIVE
   else {
     try {
       // 1. Create Stripe Payment Intent on Backend
       const intentRes = await apiCall('/api/payments/create-intent', 'POST', {
-        total: grandTotal
+        total: grandTotal,
+        items: state.cart
       });
       
       // 2. Open Stripe Secure Checkout Modal
-      openStripeCheckoutModal(intentRes.clientSecret, grandTotal, {
+      await openStripeCheckoutModal(intentRes.clientSecret, grandTotal, {
         recipientName,
         recipientEmail,
-        address: addressVal,
+        address: finalAddress,
         city: cityVal,
         phone: phoneVal,
         total: grandTotal,
         items: state.cart
-      });
+      }, intentRes.gatewayType, intentRes.publishableKey);
     } catch (error) {
       showToast("Unable to initialize secure checkout portal.");
     }
   }
 };
 
-function openStripeCheckoutModal(clientSecret, totalAmount, orderPayload) {
+async function openStripeCheckoutModal(clientSecret, totalAmount, orderPayload, gatewayType = 'Simulated', publishableKey = '') {
+  document.body.style.overflow = "hidden";
+  
+  if (gatewayType === 'Stripe') {
+    if (typeof window.Stripe === 'undefined') {
+      try {
+        await new Promise((resolve, reject) => {
+          const script = document.createElement('script');
+          script.src = 'https://js.stripe.com/v3/';
+          script.onload = resolve;
+          script.onerror = () => reject(new Error("Failed to load Stripe SDK"));
+          document.head.appendChild(script);
+        });
+      } catch (err) {
+        showToast("Failed to load Stripe secure elements checkout.");
+        document.body.style.overflow = "";
+        return;
+      }
+    }
+  }
+
   // Read merchant configuration from global state
   const merchantUpi = state.merchantConfig?.upi_id || 'hairah@upi';
   const merchantHolder = state.merchantConfig?.account_holder || 'HAIRAH MENS WORLD';
@@ -1743,6 +2228,9 @@ function openStripeCheckoutModal(clientSecret, totalAmount, orderPayload) {
   
   const qrData = `upi://pay?pa=${merchantUpi}&pn=${encodeURIComponent(merchantHolder)}&am=${totalAmount.toFixed(2)}&cu=INR`;
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(qrData)}`;
+
+  const isLive = publishableKey.startsWith('pk_live');
+  const badgeText = gatewayType === 'Simulated' ? 'Simulated' : (isLive ? 'Live Mode' : 'Test Mode');
 
   // Create backdrop container
   const backdrop = document.createElement('div');
@@ -1754,7 +2242,7 @@ function openStripeCheckoutModal(clientSecret, totalAmount, orderPayload) {
       <div class="stripe-modal-header">
         <div class="stripe-logo-container">
           <i class="fab fa-stripe" style="font-size: 3rem; color: var(--color-accent-gold);"></i>
-          <span class="stripe-badge-test">Test Mode</span>
+          <span class="stripe-badge-test">${badgeText}</span>
         </div>
         <button class="stripe-close-btn" onclick="closeStripeModal()"><i class="fas fa-times"></i></button>
       </div>
@@ -1764,12 +2252,15 @@ function openStripeCheckoutModal(clientSecret, totalAmount, orderPayload) {
         <div class="stripe-amount-value">₹${totalAmount.toFixed(2)}</div>
       </div>
       
+      ${gatewayType === 'Simulated' ? `
       <div class="stripe-tabs">
         <div class="stripe-tab active" id="tab-stripe-card" onclick="switchStripeTab('Card')">Credit / Debit Card</div>
         <div class="stripe-tab" id="tab-stripe-upi" onclick="switchStripeTab('UPI')">UPI / QR Code</div>
       </div>
+      ` : ''}
       
       <!-- Card Pane -->
+      ${gatewayType === 'Simulated' ? `
       <div class="stripe-pane active" id="pane-stripe-card">
         <form onsubmit="handleStripeCardSubmit(event, '${clientSecret}', ${totalAmount}, ${JSON.stringify(orderPayload).replace(/"/g, '&quot;')})">
           <div class="form-group" style="margin-bottom: 1rem;">
@@ -1799,8 +2290,27 @@ function openStripeCheckoutModal(clientSecret, totalAmount, orderPayload) {
           </button>
         </form>
       </div>
+      ` : `
+      <div class="stripe-pane active" id="pane-stripe-card">
+        <form id="stripe-real-payment-form">
+          <div class="form-group" style="margin-bottom: 1.5rem;">
+            <div style="font-size:0.75rem; color:var(--color-text-muted); margin-bottom:1rem; border:1px dashed var(--color-border); padding:0.5rem; border-radius:4px;">
+              Secure payment processed via Stripe Payments.
+            </div>
+            <label style="font-size: 0.75rem; display:block; margin-bottom: 0.5rem;">Credit / Debit Card Details</label>
+            <div id="stripe-card-element" style="background-color: var(--color-bg-input); padding: 1.2rem; border-radius: 6px; border: 1px solid var(--color-border); margin-bottom: 1.5rem;"></div>
+            <div id="stripe-card-errors" role="alert" style="color: var(--color-danger); font-size: 0.8rem; margin-top: -0.5rem; margin-bottom: 1rem;"></div>
+          </div>
+          
+          <button type="submit" class="btn btn-primary" style="width: 100%; padding: 1rem; text-transform: uppercase; font-weight: 600; font-size: 0.85rem; letter-spacing: 0.05em;">
+            Pay ₹${totalAmount.toFixed(2)}
+          </button>
+        </form>
+      </div>
+      `}
       
       <!-- UPI Pane -->
+      ${gatewayType === 'Simulated' ? `
       <div class="stripe-pane" id="pane-stripe-upi">
         <div class="stripe-qr-wrapper" style="padding-bottom: 0.5rem;">
           <div style="font-size: 0.8rem; color: var(--color-text-muted); line-height: 1.5;">
@@ -1843,6 +2353,7 @@ function openStripeCheckoutModal(clientSecret, totalAmount, orderPayload) {
           </button>
         </form>
       </div>
+      ` : ''}
       
       <!-- Processing overlay (hidden by default) -->
       <div class="stripe-loader-overlay" id="stripe-loading" style="display: none;">
@@ -1853,11 +2364,80 @@ function openStripeCheckoutModal(clientSecret, totalAmount, orderPayload) {
   `;
   
   document.body.appendChild(backdrop);
+
+  if (gatewayType === 'Stripe') {
+    const stripeInstance = window.Stripe(publishableKey);
+    const elements = stripeInstance.elements();
+    
+    const textColor = getComputedStyle(document.documentElement).getPropertyValue('--color-text-main').trim() || '#252422';
+    const cardElement = elements.create('card', {
+      style: {
+        base: {
+          color: textColor,
+          fontFamily: 'Outfit, Inter, sans-serif',
+          fontSize: '15px',
+          '::placeholder': {
+            color: '#888888'
+          }
+        },
+        invalid: {
+          color: '#C02A2A',
+          iconColor: '#C02A2A'
+        }
+      }
+    });
+    
+    cardElement.mount('#stripe-card-element');
+    
+    const form = document.getElementById('stripe-real-payment-form');
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      const loader = document.getElementById('stripe-loading');
+      const loaderText = document.getElementById('stripe-loading-text');
+      loader.style.display = 'flex';
+      loaderText.innerText = 'Processing real card payment...';
+      
+      const { paymentIntent, error } = await stripeInstance.confirmCardPayment(clientSecret, {
+        payment_method: {
+          card: cardElement
+        }
+      });
+      
+      if (error) {
+        loader.style.display = 'none';
+        const errorDiv = document.getElementById('stripe-card-errors');
+        errorDiv.innerText = error.message;
+      } else if (paymentIntent && paymentIntent.status === 'succeeded') {
+        loaderText.innerText = 'Creating order reference...';
+        try {
+          orderPayload.paymentId = paymentIntent.id;
+          orderPayload.paymentMethod = 'Stripe (Real Card)';
+          
+          const finalOrder = await apiCall('/api/orders', 'POST', orderPayload);
+          
+          loader.innerHTML = `
+            <div class="stripe-success-checkmark"><i class="fas fa-check-circle" style="color:var(--color-success);"></i></div>
+            <div style="font-family: var(--font-display); font-size: 1.2rem; color: var(--color-success); font-weight: 500; margin-top: 1rem;">Payment Succeeded</div>
+          `;
+          
+          setTimeout(() => {
+            closeStripeModal();
+            showOrderReceipt(finalOrder.orderId, orderPayload, 'Stripe (Real Card)', paymentIntent.id);
+          }, 1500);
+        } catch (err) {
+          loader.style.display = 'none';
+          showToast("Order creation failed after payment success. Contact support.");
+        }
+      }
+    });
+  }
 }
 
 window.closeStripeModal = function() {
   const modal = document.getElementById('stripe-payment-modal');
   if (modal) modal.remove();
+  document.body.style.overflow = "";
 };
 
 window.switchStripeTab = function(method) {
@@ -2114,6 +2694,77 @@ window.switchAdminTab = function(tabName) {
   renderCurrentView();
 };
 
+window.handleAdminChangeDateFilter = function(val) {
+  state.adminFilterDate = val;
+  renderCurrentView();
+};
+
+window.handleAdminChangeMetricsView = function(val) {
+  state.adminMetricView = val;
+  renderCurrentView();
+};
+
+window.handleAdminChangeMonthFilter = function(val) {
+  state.adminFilterMonth = val;
+  renderCurrentView();
+};
+
+window.handleAdminChangeStartDateFilter = function(val) {
+  state.adminFilterStartDate = val;
+  renderCurrentView();
+};
+
+window.handleAdminChangeEndDateFilter = function(val) {
+  state.adminFilterEndDate = val;
+  renderCurrentView();
+};
+
+window.downloadDailyOrdersCSV = function() {
+  const filteredOrders = state.lastFilteredOrders || state.orders;
+  
+  if (filteredOrders.length === 0) {
+    showToast("No orders available to download for this selection.");
+    return;
+  }
+  
+  const headers = ["Order ID", "Customer Email", "Date", "Items Purchased", "Grand Total (INR)", "Status", "Payment Method", "Payment ID"];
+  
+  const rows = filteredOrders.map(o => {
+    const items = o.items.map(item => `${item.title} (x${item.qty})`).join('; ');
+    const email = o.customer_email || o.customerEmail || 'N/A';
+    const method = o.payment_method || 'Card';
+    const paymentId = o.payment_id || 'N/A';
+    
+    return [
+      o.id,
+      email,
+      o.date,
+      items,
+      o.total.toFixed(2),
+      o.status,
+      method,
+      paymentId
+    ];
+  });
+  
+  const csvContent = [headers, ...rows]
+    .map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(','))
+    .join('\n');
+    
+  const dateLabel = state.adminFilterDate || new Date().toISOString().split('T')[0];
+  const modeLabel = state.adminMetricView || 'report';
+  
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.setAttribute("href", url);
+  link.setAttribute("download", `orders_${modeLabel}_${dateLabel}.csv`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+};
+
 window.handleAdminChangeOrderStatus = async function(orderId, selectElement) {
   const statusVal = selectElement.value;
   try {
@@ -2167,6 +2818,8 @@ window.handleSavePaymentSettings = async function(event) {
   const gatewayType = document.getElementById("admin-gateway-type").value;
   const razorpayKeyId = document.getElementById("admin-rzp-key").value.trim();
   const razorpayKeySecret = document.getElementById("admin-rzp-secret").value.trim();
+  const stripePublishableKey = document.getElementById("admin-stripe-pub-key").value.trim();
+  const stripeSecretKey = document.getElementById("admin-stripe-secret-key").value.trim();
   
   try {
     const result = await apiCall('/api/payments/merchant-config', 'POST', {
@@ -2176,7 +2829,9 @@ window.handleSavePaymentSettings = async function(event) {
       accountNumber,
       gatewayType,
       razorpayKeyId,
-      razorpayKeySecret
+      razorpayKeySecret,
+      stripePublishableKey,
+      stripeSecretKey
     });
     showToast(result.message);
     await syncSessionAndDatabase(); // Reload updated config
@@ -2332,6 +2987,20 @@ window.handleAdminToggleVisibility = async function(productId, checkboxElement) 
   }
 };
 
+window.handleAdminDeleteProduct = async function(productId, productTitle) {
+  const confirmed = confirm(`Are you sure you want to delete the product "${productTitle}"? This will also delete all associated stock records and reviews. This action cannot be undone.`);
+  if (!confirmed) return;
+  
+  try {
+    const res = await apiCall(`/api/products/${productId}`, 'DELETE');
+    showToast(res.message);
+    await syncSessionAndDatabase();
+    renderCurrentView();
+  } catch (error) {
+    showToast("Failed to delete product: " + (error.message || error.error));
+  }
+};
+
 // --- Toast System ---
 function showToast(message) {
   const toast = document.createElement("div");
@@ -2350,13 +3019,18 @@ function showToast(message) {
 
 // --- Razorpay Configurations and Simulated Helpers ---
 window.toggleAdminGatewayFields = function(select) {
-  const creds = document.getElementById("admin-razorpay-credentials");
-  if (creds) {
-    creds.style.display = select.value === "Razorpay" ? "block" : "none";
+  const rzpCreds = document.getElementById("admin-razorpay-credentials");
+  if (rzpCreds) {
+    rzpCreds.style.display = select.value === "Razorpay" ? "block" : "none";
+  }
+  const stripeCreds = document.getElementById("admin-stripe-credentials");
+  if (stripeCreds) {
+    stripeCreds.style.display = select.value === "Stripe" ? "block" : "none";
   }
 };
 
 function openMockRazorpayModal(orderRes, orderPayload) {
+  document.body.style.overflow = "hidden";
   const backdrop = document.createElement('div');
   backdrop.className = 'stripe-modal-backdrop';
   backdrop.id = 'mock-rzp-modal';
@@ -2471,6 +3145,7 @@ function openMockRazorpayModal(orderRes, orderPayload) {
 window.closeMockRzpModal = function() {
   const modal = document.getElementById('mock-rzp-modal');
   if (modal) modal.remove();
+  document.body.style.overflow = "";
 };
 
 window.switchMockRzpPane = function(pane) {
@@ -2578,6 +3253,7 @@ window.handleMockRzpUPISuccess = async function(orderId, orderPayload) {
 };
 
 window.viewAdminOrderDetails = function(orderId) {
+  document.body.style.overflow = "hidden";
   const o = state.orders.find(order => order.id === orderId);
   if (!o) {
     showToast("Order details not found.");
@@ -2593,7 +3269,7 @@ window.viewAdminOrderDetails = function(orderId) {
     <tr style="border-bottom:1px solid var(--color-border);">
       <td style="padding: 0.8rem 0; font-size: 0.85rem;">
         <span style="font-weight:600; color:var(--color-text-light);">${item.title}</span>
-        <div style="font-size:0.7rem; color:var(--color-text-muted); margin-top:0.2rem;">Size: ${item.size} | Color: ${item.color}</div>
+        <div style="font-size:0.7rem; color:var(--color-text-muted); margin-top:0.2rem;">Size: ${item.size}</div>
       </td>
       <td style="padding: 0.8rem 0; font-size: 0.85rem; text-align: center;">${item.qty}</td>
       <td style="padding: 0.8rem 0; font-size: 0.85rem; text-align: right; font-family: var(--font-display);">₹${item.price.toFixed(2)}</td>
@@ -2692,6 +3368,7 @@ window.viewAdminOrderDetails = function(orderId) {
 window.closeAdminOrderDetailModal = function() {
   const modal = document.getElementById('admin-order-detail-modal');
   if (modal) modal.remove();
+  document.body.style.overflow = "";
 };
 
 window.printAdminOrderSlip = function(orderId) {
@@ -2705,7 +3382,7 @@ window.printAdminOrderSlip = function(orderId) {
     <tr style="border-bottom: 1px solid #ddd;">
       <td style="padding: 8px 0; font-size: 13px;">
         <strong>${item.title}</strong>
-        <div style="font-size: 11px; color: #555; margin-top: 2px;">Size: ${item.size} | Color: ${item.color}</div>
+        <div style="font-size: 11px; color: #555; margin-top: 2px;">Size: ${item.size}</div>
       </td>
       <td style="padding: 8px 0; font-size: 13px; text-align: center;">${item.qty}</td>
     </tr>
