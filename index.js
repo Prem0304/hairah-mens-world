@@ -848,6 +848,15 @@ function formatJSDateToDbString(dateStr) {
   return `${monthName} ${day}, ${year}`;
 }
 
+// Helper to format JS Date object to premium display string (e.g. "03 Aug 2026")
+function formatJSDateToDisplayString(dateObj) {
+  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const day = String(dateObj.getDate()).padStart(2, '0');
+  const month = monthNames[dateObj.getMonth()];
+  const year = dateObj.getFullYear();
+  return `${day} ${month} ${year}`;
+}
+
 // Helper to parse database date like "August 03, 2026" or "July 28, 2026" to a standard JS Date object
 function parseDbDateToJSDate(dbStr) {
   if (!dbStr) return new Date();
@@ -866,14 +875,254 @@ function parseDbDateToJSDate(dbStr) {
   return new Date(year, monthIdx, day, 0, 0, 0, 0);
 }
 
-// Helper to format JS Date object to premium display string (e.g. "03 Aug 2026")
-function formatJSDateToDisplayString(dateObj) {
-  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  const day = String(dateObj.getDate()).padStart(2, '0');
-  const month = monthNames[dateObj.getMonth()];
-  const year = dateObj.getFullYear();
-  return `${day} ${month} ${year}`;
+// --- Dynamic Charting Helper Functions ---
+function aggregateSalesData(orders, viewMode) {
+  const dataPoints = [];
+  
+  if (viewMode === 'daily') {
+    // Show 7 days ending on selected date for daily context
+    const selectedDate = parseDbDateToJSDate(state.adminFilterDate);
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(selectedDate);
+      d.setDate(selectedDate.getDate() - i);
+      const dateStr = formatJSDateToDisplayString(d);
+      
+      const dayOrders = state.orders.filter(o => {
+        const oDate = parseDbDateToJSDate(o.date);
+        return oDate.getFullYear() === d.getFullYear() &&
+               oDate.getMonth() === d.getMonth() &&
+               oDate.getDate() === d.getDate();
+      });
+      const total = dayOrders.reduce((sum, o) => sum + o.total, 0);
+      dataPoints.push({ label: d.getDate().toString(), value: total, details: dateStr });
+    }
+  } 
+  else if (viewMode === 'weekly') {
+    // Show Sun to Sat boundaries for selected week
+    const selectedDate = parseDbDateToJSDate(state.adminFilterDate);
+    const dayOfWeek = selectedDate.getDay();
+    const startOfWeek = new Date(selectedDate);
+    startOfWeek.setDate(selectedDate.getDate() - dayOfWeek);
+    
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(startOfWeek);
+      d.setDate(startOfWeek.getDate() + i);
+      const dateStr = formatJSDateToDisplayString(d);
+      
+      const dayOrders = state.orders.filter(o => {
+        const oDate = parseDbDateToJSDate(o.date);
+        return oDate.getFullYear() === d.getFullYear() &&
+               oDate.getMonth() === d.getMonth() &&
+               oDate.getDate() === d.getDate();
+      });
+      const total = dayOrders.reduce((sum, o) => sum + o.total, 0);
+      dataPoints.push({ label: dayNames[i], value: total, details: dateStr });
+    }
+  } 
+  else if (viewMode === 'monthly') {
+    // Show days of the selected month
+    const parts = state.adminFilterMonth.split('-');
+    const filterYear = parseInt(parts[0], 10);
+    const filterMonth = parseInt(parts[1], 10) - 1;
+    
+    const daysInMonth = new Date(filterYear, filterMonth + 1, 0).getDate();
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const monthName = monthNames[filterMonth] || '';
+    
+    for (let i = 1; i <= daysInMonth; i++) {
+      const d = new Date(filterYear, filterMonth, i);
+      const dateStr = `${i} ${monthName} ${filterYear}`;
+      
+      const dayOrders = state.orders.filter(o => {
+        const oDate = parseDbDateToJSDate(o.date);
+        return oDate.getFullYear() === filterYear &&
+               oDate.getMonth() === filterMonth &&
+               oDate.getDate() === i;
+      });
+      const total = dayOrders.reduce((sum, o) => sum + o.total, 0);
+      dataPoints.push({ label: i.toString(), value: total, details: dateStr });
+    }
+  } 
+  else if (viewMode === 'custom') {
+    // Show all dates in custom range
+    const start = new Date(state.adminFilterStartDate + 'T00:00:00');
+    const end = new Date(state.adminFilterEndDate + 'T23:59:59');
+    
+    const diffTime = Math.abs(end - start);
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    if (diffDays <= 15) {
+      for (let i = 0; i <= diffDays; i++) {
+        const d = new Date(start);
+        d.setDate(start.getDate() + i);
+        const dateStr = formatJSDateToDisplayString(d);
+        
+        const dayOrders = state.orders.filter(o => {
+          const oDate = parseDbDateToJSDate(o.date);
+          return oDate.getFullYear() === d.getFullYear() &&
+                 oDate.getMonth() === d.getMonth() &&
+                 oDate.getDate() === d.getDate();
+        });
+        const total = dayOrders.reduce((sum, o) => sum + o.total, 0);
+        dataPoints.push({ label: d.getDate().toString(), value: total, details: dateStr });
+      }
+    } else {
+      // Group by weeks for long ranges to maintain legibility
+      let current = new Date(start);
+      while (current <= end) {
+        const nextWeek = new Date(current);
+        nextWeek.setDate(current.getDate() + 6);
+        const limit = nextWeek < end ? nextWeek : end;
+        
+        const weekOrders = state.orders.filter(o => {
+          const oDate = parseDbDateToJSDate(o.date);
+          return oDate >= current && oDate <= new Date(limit.getFullYear(), limit.getMonth(), limit.getDate(), 23, 59, 59);
+        });
+        
+        const total = weekOrders.reduce((sum, o) => sum + o.total, 0);
+        const labelStr = `${current.getDate()}/${current.getMonth() + 1}`;
+        const detailStr = `${formatJSDateToDisplayString(current)} - ${formatJSDateToDisplayString(limit)}`;
+        dataPoints.push({ label: labelStr, value: total, details: detailStr });
+        
+        current.setDate(current.getDate() + 7);
+      }
+    }
+  } 
+  else {
+    // Lifetime: Group by month for last 6 months
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const now = new Date();
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const mIdx = d.getMonth();
+      const yStr = d.getFullYear();
+      
+      const monthOrders = state.orders.filter(o => {
+        const oDate = parseDbDateToJSDate(o.date);
+        return oDate.getFullYear() === d.getFullYear() && oDate.getMonth() === d.getMonth();
+      });
+      const total = monthOrders.reduce((sum, o) => sum + o.total, 0);
+      dataPoints.push({ label: monthNames[mIdx], value: total, details: `${monthNames[mIdx]} ${yStr}` });
+    }
+  }
+  
+  return dataPoints;
 }
+
+function generateAdminSVGChart(data, viewMode) {
+  if (!data || data.length === 0) {
+    return `<div style="text-align:center; padding:2rem; font-size:0.8rem; color:var(--color-text-muted);">No sales data available.</div>`;
+  }
+  
+  const width = 600;
+  const height = 150;
+  const paddingX = 40;
+  const paddingY = 20;
+  
+  const maxVal = Math.max(...data.map(d => d.value), 100);
+  
+  // Calculate node points coordinates
+  const points = data.map((d, index) => {
+    const x = paddingX + (index / (data.length - 1 || 1)) * (width - 2 * paddingX);
+    const y = height - paddingY - (d.value / maxVal) * (height - 2 * paddingY);
+    return { x, y, value: d.value, label: d.label, details: d.details };
+  });
+  
+  let pathD = "";
+  let areaD = "";
+  
+  if (points.length > 0) {
+    pathD = `M ${points[0].x} ${points[0].y}`;
+    for (let i = 1; i < points.length; i++) {
+      const p = points[i];
+      const prev = points[i - 1];
+      const cpX1 = prev.x + (p.x - prev.x) / 3;
+      const cpY1 = prev.y;
+      const cpX2 = prev.x + 2 * (p.x - prev.x) / 3;
+      const cpY2 = p.y;
+      pathD += ` C ${cpX1} ${cpY1}, ${cpX2} ${cpY2}, ${p.x} ${p.y}`;
+    }
+    areaD = `${pathD} L ${points[points.length - 1].x} ${height - paddingY} L ${points[0].x} ${height - paddingY} Z`;
+  }
+  
+  const gridLines = [];
+  for (let i = 0; i <= 3; i++) {
+    const val = (maxVal / 3) * i;
+    const y = height - paddingY - (val / maxVal) * (height - 2 * paddingY);
+    gridLines.push(`
+      <line x1="${paddingX}" y1="${y}" x2="${width - paddingX}" y2="${y}" stroke="rgba(255,255,255,0.06)" stroke-dasharray="3,3" />
+      <text x="${paddingX - 10}" y="${y + 3}" fill="var(--color-text-muted)" font-size="7" text-anchor="end">₹${Math.round(val)}</text>
+    `);
+  }
+  
+  const step = Math.ceil(data.length / 10);
+  const xLabels = points.map((p, i) => {
+    if (i % step !== 0 && i !== points.length - 1) return '';
+    return `
+      <text x="${p.x}" y="${height - 5}" fill="var(--color-text-muted)" font-size="7" text-anchor="middle">${p.label}</text>
+    `;
+  }).join('');
+  
+  const hoverPointsHtml = points.map((p) => {
+    return `
+      <g class="chart-point-group">
+        <circle cx="${p.x}" cy="${p.y}" r="3" fill="var(--color-accent-gold)" stroke="var(--color-bg-card)" stroke-width="1.5" />
+        <circle cx="${p.x}" cy="${p.y}" r="10" fill="transparent" class="chart-point-hover" onmouseover="showChartTooltip(event, '${p.details}', '₹${p.value.toFixed(2)}')" onmouseout="hideChartTooltip()" />
+      </g>
+    `;
+  }).join('');
+  
+  return `
+    <svg viewBox="0 0 ${width} ${height}" style="width:100%; height:auto; overflow:visible;">
+      <defs>
+        <linearGradient id="chart-area-grad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="var(--color-accent-gold)" stop-opacity="0.2"/>
+          <stop offset="100%" stop-color="var(--color-accent-gold)" stop-opacity="0.0"/>
+        </linearGradient>
+      </defs>
+      ${gridLines.join('')}
+      <path d="${areaD}" fill="url(#chart-area-grad)" />
+      <path d="${pathD}" fill="none" stroke="var(--color-accent-gold)" stroke-width="1.5" stroke-linecap="round" />
+      ${xLabels}
+      ${hoverPointsHtml}
+    </svg>
+  `;
+}
+
+window.showChartTooltip = function(event, dateStr, valueStr) {
+  let tooltip = document.getElementById("chart-tooltip");
+  if (!tooltip) {
+    tooltip = document.createElement("div");
+    tooltip.id = "chart-tooltip";
+    tooltip.style.position = "absolute";
+    tooltip.style.background = "var(--color-bg-card)";
+    tooltip.style.border = "1px solid var(--color-border)";
+    tooltip.style.padding = "0.4rem 0.8rem";
+    tooltip.style.borderRadius = "4px";
+    tooltip.style.fontSize = "0.75rem";
+    tooltip.style.color = "var(--color-text-main)";
+    tooltip.style.pointerEvents = "none";
+    tooltip.style.boxShadow = "0 4px 12px rgba(0,0,0,0.2)";
+    tooltip.style.zIndex = "1000";
+    tooltip.style.fontFamily = "var(--font-display)";
+    document.body.appendChild(tooltip);
+  }
+  
+  tooltip.innerHTML = `<strong style="color:var(--color-accent-gold);">${valueStr}</strong><br><span style="font-size:0.65rem; color:var(--color-text-muted);">${dateStr}</span>`;
+  tooltip.style.display = "block";
+  
+  const rect = event.target.getBoundingClientRect();
+  tooltip.style.left = `${window.scrollX + rect.left + rect.width / 2 - tooltip.offsetWidth / 2}px`;
+  tooltip.style.top = `${window.scrollY + rect.top - tooltip.offsetHeight - 8}px`;
+};
+
+window.hideChartTooltip = function() {
+  const tooltip = document.getElementById("chart-tooltip");
+  if (tooltip) {
+    tooltip.style.display = "none";
+  }
+};
 
 // 7. Admin Dashboard Template
 function getAdminTemplate() {
@@ -1078,7 +1327,7 @@ function getAdminTemplate() {
         <button class="btn btn-secondary" onclick="handleLogout()">Exit Portal</button>
       </div>
       
-      <div class="admin-stats-ribbon" style="grid-template-columns: repeat(2, 1fr);">
+      <div class="admin-stats-ribbon" style="grid-template-columns: repeat(2, 1fr); margin-bottom:1.5rem;">
         <div class="stat-card" style="position: relative;">
           <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 0.5rem;">
             <span class="stat-card-title">${revenueTitle}</span>
@@ -1096,6 +1345,15 @@ function getAdminTemplate() {
           <span class="stat-card-title">${ordersTitle}</span>
           <span class="stat-card-value">${ordersValue}</span>
         </div>
+      </div>
+      
+      <!-- SVG Analytics Chart -->
+      <div class="admin-chart-card" style="background: var(--color-bg-card); border: 1px solid var(--color-border); padding: 1.5rem; border-radius: 6px; margin-bottom: 2rem; box-shadow: 0 4px 20px rgba(0,0,0,0.05); animation: fadeIn 0.3s ease-out;">
+        <h4 style="margin: 0 0 1.2rem 0; font-size: 0.8rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--color-text-muted); font-weight:600;">Sartorial Revenue Performance</h4>
+        ${(() => {
+          const chartData = aggregateSalesData(filteredOrders, state.adminMetricView);
+          return generateAdminSVGChart(chartData, state.adminMetricView);
+        })()}
       </div>
       
       <div class="admin-tabs">
