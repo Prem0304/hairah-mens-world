@@ -978,9 +978,9 @@ function getAdminTemplate() {
         <td style="font-weight:600; font-family:var(--font-display); text-align:right;">₹${o.total.toFixed(2)}</td>
         <td>
           <select class="status-dropdown" onchange="handleAdminChangeOrderStatus('${o.id}', this)">
-            <option value="Processing" ${o.status === 'Processing' ? 'selected' : ''}>Processing</option>
-            <option value="Shipped" ${o.status === 'Shipped' ? 'selected' : ''}>Shipped</option>
-            <option value="Delivered" ${o.status === 'Delivered' ? 'selected' : ''}>Delivered</option>
+            <option value="Processing" style="background: var(--color-bg-card); color: var(--color-text-main);" ${o.status === 'Processing' ? 'selected' : ''}>Processing</option>
+            <option value="Shipped" style="background: var(--color-bg-card); color: var(--color-text-main);" ${o.status === 'Shipped' ? 'selected' : ''}>Shipped</option>
+            <option value="Delivered" style="background: var(--color-bg-card); color: var(--color-text-main);" ${o.status === 'Delivered' ? 'selected' : ''}>Delivered</option>
           </select>
         </td>
         <td style="text-align: center;">
@@ -1075,11 +1075,11 @@ function getAdminTemplate() {
           <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 0.5rem;">
             <span class="stat-card-title">${revenueTitle}</span>
             <select onchange="handleAdminChangeMetricsView(this.value)" style="background: rgba(255,255,255,0.05); border: 1px solid var(--color-border); color: var(--color-text-main); font-size: 0.75rem; border-radius: 4px; padding: 0.2rem 0.5rem; outline: none; cursor: pointer; font-weight: 500; font-family: inherit;">
-              <option value="daily" ${state.adminMetricView === 'daily' ? 'selected' : ''}>Daily</option>
-              <option value="weekly" ${state.adminMetricView === 'weekly' ? 'selected' : ''}>Weekly</option>
-              <option value="monthly" ${state.adminMetricView === 'monthly' ? 'selected' : ''}>Monthly</option>
-              <option value="custom" ${state.adminMetricView === 'custom' ? 'selected' : ''}>Custom Range</option>
-              <option value="total" ${state.adminMetricView === 'total' ? 'selected' : ''}>Lifetime</option>
+              <option value="daily" style="background: var(--color-bg-card); color: var(--color-text-main);" ${state.adminMetricView === 'daily' ? 'selected' : ''}>Daily</option>
+              <option value="weekly" style="background: var(--color-bg-card); color: var(--color-text-main);" ${state.adminMetricView === 'weekly' ? 'selected' : ''}>Weekly</option>
+              <option value="monthly" style="background: var(--color-bg-card); color: var(--color-text-main);" ${state.adminMetricView === 'monthly' ? 'selected' : ''}>Monthly</option>
+              <option value="custom" style="background: var(--color-bg-card); color: var(--color-text-main);" ${state.adminMetricView === 'custom' ? 'selected' : ''}>Custom Range</option>
+              <option value="total" style="background: var(--color-bg-card); color: var(--color-text-main);" ${state.adminMetricView === 'total' ? 'selected' : ''}>Lifetime</option>
             </select>
           </div>
           <span class="stat-card-value">₹${revenueValue.toFixed(2)}</span>
@@ -1265,9 +1265,9 @@ function getAdminTemplate() {
             <div class="form-group" style="margin-bottom: 1.5rem;">
               <label>Select Payment Gateway</label>
               <select class="form-input" id="admin-gateway-type" onchange="toggleAdminGatewayFields(this)" style="background-color: var(--color-bg-input); border: 1px solid var(--color-border); color: var(--color-text-main); font-size: 0.85rem; cursor: pointer;">
-                <option value="Simulated" ${state.merchantConfig?.gateway_type === 'Simulated' ? 'selected' : ''}>Simulated Portal (Stripe / UPI UTR verification)</option>
-                <option value="Stripe" ${state.merchantConfig?.gateway_type === 'Stripe' ? 'selected' : ''}>Stripe (Real checkouts)</option>
-                <option value="Razorpay" ${state.merchantConfig?.gateway_type === 'Razorpay' ? 'selected' : ''}>Razorpay (Real checkouts)</option>
+                <option value="Simulated" style="background: var(--color-bg-card); color: var(--color-text-main);" ${state.merchantConfig?.gateway_type === 'Simulated' ? 'selected' : ''}>Simulated Portal (Stripe / UPI UTR verification)</option>
+                <option value="Stripe" style="background: var(--color-bg-card); color: var(--color-text-main);" ${state.merchantConfig?.gateway_type === 'Stripe' ? 'selected' : ''}>Stripe (Real checkouts)</option>
+                <option value="Razorpay" style="background: var(--color-bg-card); color: var(--color-text-main);" ${state.merchantConfig?.gateway_type === 'Razorpay' ? 'selected' : ''}>Razorpay (Real checkouts)</option>
               </select>
             </div>
             
@@ -3307,9 +3307,9 @@ window.viewAdminOrderDetails = function(orderId) {
             <strong>Date Placed:</strong> ${o.date}<br>
             <strong>Current Status:</strong> 
             <select class="status-dropdown" onchange="handleAdminChangeOrderStatus('${o.id}', this)" style="display:inline-block; margin-top:0.25rem; font-size:0.75rem; padding:0.3rem 0.6rem;">
-              <option value="Processing" ${o.status === 'Processing' ? 'selected' : ''}>Processing</option>
-              <option value="Shipped" ${o.status === 'Shipped' ? 'selected' : ''}>Shipped</option>
-              <option value="Delivered" ${o.status === 'Delivered' ? 'selected' : ''}>Delivered</option>
+              <option value="Processing" style="background: var(--color-bg-card); color: var(--color-text-main);" ${o.status === 'Processing' ? 'selected' : ''}>Processing</option>
+              <option value="Shipped" style="background: var(--color-bg-card); color: var(--color-text-main);" ${o.status === 'Shipped' ? 'selected' : ''}>Shipped</option>
+              <option value="Delivered" style="background: var(--color-bg-card); color: var(--color-text-main);" ${o.status === 'Delivered' ? 'selected' : ''}>Delivered</option>
             </select>
           </div>
         </div>
