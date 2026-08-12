@@ -626,6 +626,13 @@ def api_verify_razorpay_signature():
     # Simulated Mode
     return jsonify({"status": "succeeded", "message": "Simulated Razorpay transaction verified"}), 200
 
+@app.route('/api/admin/ai-predictions', methods=['GET'])
+def api_admin_ai_predictions():
+    if session.get('user_role') != 'admin':
+        return jsonify({"error": "Forbidden"}), 403
+    predictions = database.get_ai_predictions()
+    return jsonify(predictions), 200
+
 if __name__ == '__main__':
     # Running on local port 5000
     app.run(host='0.0.0.0', port=5000, debug=True)

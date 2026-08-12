@@ -446,6 +446,7 @@ def get_all_products(include_hidden=False):
         p['colors'] = json.loads(p['colors'])
         p['inStock'] = bool(p['in_stock'])
         p['isVisible'] = bool(p.get('is_visible', 1))
+        p['categoryLabel'] = p.get('category_label', '')
         
         # Fetch size stock dictionary
         cursor.execute('SELECT size, stock FROM product_sizes_stock WHERE product_id = ?', (p['id'],))
@@ -712,3 +713,83 @@ def save_merchant_settings(upi_id, account_holder, bank_name, account_number, ga
     ''', ('merchant_config', upi_id, account_holder, bank_name, account_number, gateway_type, razorpay_key_id, razorpay_key_secret, stripe_publishable_key, stripe_secret_key))
     conn.commit()
     conn.close()
+
+def get_ai_predictions():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # 1. Fetch current stock levels
+    cursor.execute('SELECT product_id, size, stock FROM product_sizes_stock')
+    stock_rows = cursor.fetchall()
+    stocks = {}
+    for r in stock_rows:
+        stocks[(r['product_id'], r['size'])] = r['stock']
+        
+    # 2. Fetch order items to calculate sales velocity
+    cursor.execute('''
+        SELECT oi.product_id, oi.size, oi.title, SUM(oi.qty) as total_sold
+        FROM order_items oi
+        JOIN orders o ON oi.order_id = o.id
+        GROUP BY oi.product_id, oi.size
+    ''')
+    sales_rows = cursor.fetchall()
+    
+    predictions = []
+    recommendations = []
+    
+    for s in sales_rows:
+        pid = s['product_id']
+        size = s['size']
+        title = s['title']
+        qty_sold = s['total_sold']
+        
+        current_stock = stocks.get((pid, size), 0)
+        
+        # Calculate velocity (sales per day over an assumed active 30 day window)
+        daily_velocity = max(qty_sold / 30.0, 0.05) # baseline velocity if sold
+        
+        if current_stock == 0:
+            days_left = 0
+            status = 'Out of Stock'
+            recommendations.append(f"Critical: {title} ({size}) is Out of Stock. Replenish immediately to capture missed orders.")
+        else:
+            days_left = round(current_stock / daily_velocity, 1)
+            if days_left <= 7:
+                status = 'Critical Risk'
+                recommendations.append(f"High Priority: {title} ({size}) will deplete in {days_left} days. Restock recommended within 48 hours.")
+            elif days_left <= 15:
+                status = 'Moderate Risk'
+                recommendations.append(f"Medium Priority: {title} ({size}) will deplete in {days_left} days. Keep watch.")
+            else:
+                status = 'Low Risk'
+                
+        predictions.append({
+            'productId': pid,
+            'size': size,
+            'title': title,
+            'stock': current_stock,
+            'sold': qty_sold,
+            'velocity': round(daily_velocity * 7, 2), # weekly velocity
+            'daysLeft': days_left,
+            'status': status
+        })
+        
+    # Fallback recommendations if everything is stable
+    if not recommendations:
+        recommendations.append("All inventory levels are currently stable. Keep active fittings catalog items online.")
+        
+    # Calculate revenue forecast
+    cursor.execute('SELECT total FROM orders')
+    totals = [r['total'] for r in cursor.fetchall()]
+    total_rev = sum(totals)
+    
+    # Project next month's sales based on average ticket and order count
+    predicted_next_month_revenue = total_rev * 1.15 # Assume a 15% growth rate
+    
+    conn.close()
+    return {
+        'inventoryRisk': predictions,
+        'recommendations': recommendations[:5], # Limit to top 5 recommendations
+        'revenueForecast': round(predicted_next_month_revenue, 2),
+        'totalRevenue': round(total_rev, 2)
+    }

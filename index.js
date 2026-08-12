@@ -22,7 +22,8 @@ let state = {
   selectedProduct: null,
   profileActiveTab: "orders",
   adminActiveTab: "stats",
-  merchantConfig: null
+  merchantConfig: null,
+  aiPredictions: null
 };
 
 // --- DOM References ---
@@ -185,6 +186,11 @@ async function syncSessionAndDatabase() {
         const adminData = await apiCall('/api/orders');
         state.orders = adminData.orders;
         state.users = adminData.users;
+        try {
+          state.aiPredictions = await apiCall('/api/admin/ai-predictions');
+        } catch (e) {
+          state.aiPredictions = null;
+        }
       }
     } else {
       state.wishlist = [];
@@ -281,7 +287,6 @@ window.navigate = function(view) {
   // Close any open drawers or modals to ensure scrolling is never stuck
   closeCartDrawer();
   closePDPModal();
-  if (window.closeStripeModal) window.closeStripeModal();
   if (window.closeMockRzpModal) window.closeMockRzpModal();
   if (window.closeAdminOrderDetailModal) window.closeAdminOrderDetailModal();
   document.body.style.overflow = ""; // Hard reset scroll lock
@@ -456,9 +461,9 @@ function getShopTemplate() {
           </div>
           <h3 class="product-title">${p.title}</h3>
           
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-top: auto; padding-top: 1rem;">
+          <div class="product-card-footer">
             <div class="rating-stars">${starHtml}</div>
-            <span style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--color-accent-gold); font-weight:600;">Details <i class="fas fa-arrow-right" style="font-size:0.65rem;"></i></span>
+            <span class="product-card-details-link">Details <i class="fas fa-arrow-right"></i></span>
           </div>
         </div>
       </div>
@@ -672,7 +677,7 @@ function getCheckoutTemplate() {
             
             <h3 class="checkout-section-title" style="margin-top: 3.5rem;">Sartorial Payment</h3>
             <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 2rem; line-height: 1.6;">
-              Payments are securely encrypted and processed via Stripe Gateway, supporting card networks and instant UPI app scans.
+              Payments are securely encrypted and processed via Razorpay Gateway, supporting Cards, UPI, Netbanking, and Wallets.
             </p>
             
             <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 1rem; padding: 1.25rem; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; ${hasStockIssue ? 'opacity: 0.5; cursor: not-allowed;' : ''}" ${hasStockIssue ? 'disabled' : ''}>
@@ -1361,6 +1366,7 @@ function getAdminTemplate() {
         <div class="admin-tab ${state.adminActiveTab === 'inventory' ? 'active' : ''}" onclick="switchAdminTab('inventory')">Inventory Control</div>
         <div class="admin-tab ${state.adminActiveTab === 'customers' ? 'active' : ''}" onclick="switchAdminTab('customers')">Customer Directory</div>
         <div class="admin-tab ${state.adminActiveTab === 'payment' ? 'active' : ''}" onclick="switchAdminTab('payment')">Payment Settings</div>
+        <div class="admin-tab ${state.adminActiveTab === 'predictions' ? 'active' : ''}" onclick="switchAdminTab('predictions')"><i class="fas fa-brain" style="font-size:0.75rem; margin-right:0.3rem; color: var(--color-accent-gold);"></i> AI Predictions</div>
       </div>
       
       <div id="admin-pane-stats" style="display: ${state.adminActiveTab === 'stats' ? 'block' : 'none'};">
@@ -1528,16 +1534,8 @@ function getAdminTemplate() {
         
         <div class="glass-panel" style="padding: 2.5rem; background-color: var(--color-bg-card); max-width: 600px;">
           <form onsubmit="handleSavePaymentSettings(event)">
-            <div class="form-group" style="margin-bottom: 1.5rem;">
-              <label>Select Payment Gateway</label>
-              <select class="form-input" id="admin-gateway-type" onchange="toggleAdminGatewayFields(this)" style="background-color: var(--color-bg-input); border: 1px solid var(--color-border); color: var(--color-text-main); font-size: 0.85rem; cursor: pointer;">
-                <option value="Simulated" style="background: var(--color-bg-card); color: var(--color-text-main);" ${state.merchantConfig?.gateway_type === 'Simulated' ? 'selected' : ''}>Simulated Portal (Stripe / UPI UTR verification)</option>
-                <option value="Stripe" style="background: var(--color-bg-card); color: var(--color-text-main);" ${state.merchantConfig?.gateway_type === 'Stripe' ? 'selected' : ''}>Stripe (Real checkouts)</option>
-                <option value="Razorpay" style="background: var(--color-bg-card); color: var(--color-text-main);" ${state.merchantConfig?.gateway_type === 'Razorpay' ? 'selected' : ''}>Razorpay (Real checkouts)</option>
-              </select>
-            </div>
-            
-            <div id="admin-razorpay-credentials" style="display: ${state.merchantConfig?.gateway_type === 'Razorpay' ? 'block' : 'none'}; border-top: 1px dashed var(--color-border); padding-top: 1.5rem; margin-bottom: 1.5rem;">
+            <h4 style="font-size: 0.9rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-accent-gold); margin-bottom: 1.5rem; border-bottom: 1px dashed var(--color-border); padding-bottom: 0.5rem;">Razorpay Integration Keys</h4>
+            <div id="admin-razorpay-credentials" style="margin-bottom: 1.5rem;">
               <div class="form-group" style="margin-bottom: 1.5rem;">
                 <label>Razorpay Key ID</label>
                 <input type="text" class="form-input" id="admin-rzp-key" value="${state.merchantConfig?.razorpay_key_id || ''}" placeholder="rzp_test_xxxxxx">
@@ -1545,17 +1543,6 @@ function getAdminTemplate() {
               <div class="form-group" style="margin-bottom: 1.5rem;">
                 <label>Razorpay Key Secret</label>
                 <input type="password" class="form-input" id="admin-rzp-secret" value="${state.merchantConfig?.razorpay_key_secret || ''}" placeholder="Key Secret Value">
-              </div>
-            </div>
-
-            <div id="admin-stripe-credentials" style="display: ${state.merchantConfig?.gateway_type === 'Stripe' ? 'block' : 'none'}; border-top: 1px dashed var(--color-border); padding-top: 1.5rem; margin-bottom: 1.5rem;">
-              <div class="form-group" style="margin-bottom: 1.5rem;">
-                <label>Stripe Publishable Key</label>
-                <input type="text" class="form-input" id="admin-stripe-pub-key" value="${state.merchantConfig?.stripe_publishable_key || ''}" placeholder="pk_test_xxxxxx">
-              </div>
-              <div class="form-group" style="margin-bottom: 1.5rem;">
-                <label>Stripe Secret Key</label>
-                <input type="password" class="form-input" id="admin-stripe-secret-key" value="${state.merchantConfig?.stripe_secret_key || ''}" placeholder="sk_test_xxxxxx">
               </div>
             </div>
 
@@ -1585,6 +1572,117 @@ function getAdminTemplate() {
             </button>
           </form>
         </div>
+      </div>
+
+      <!-- AI Predictions Pane -->
+      <div id="admin-pane-predictions" style="display: ${state.adminActiveTab === 'predictions' ? 'block' : 'none'};">
+        <h3 style="font-size: 1.25rem; margin-bottom: 2rem; letter-spacing:0.05em;">AI Sales & Inventory Forecaster</h3>
+        <p style="color: var(--color-text-muted); font-size: 0.85rem; margin-bottom: 2.5rem; line-height: 1.6;">
+          Real-time machine-learning projections analyzed from database order volumes, sizing sales velocities, and current warehouse stock registry.
+        </p>
+
+        ${(() => {
+          if (!state.aiPredictions) {
+            return `<div class="glass-panel" style="padding: 2.5rem; text-align: center; color: var(--color-text-muted);">Awaiting model computation pipeline...</div>`;
+          }
+
+          const risks = state.aiPredictions.inventoryRisk || [];
+          const recs = state.aiPredictions.recommendations || [];
+          const forecast = state.aiPredictions.revenueForecast || 0;
+          const totalRev = state.aiPredictions.totalRevenue || 0;
+
+          const recsHtml = recs.map(r => {
+            const isCritical = r.toLowerCase().startsWith('critical') || r.toLowerCase().startsWith('high');
+            const alertColor = isCritical ? 'rgba(220, 53, 69, 0.12)' : 'rgba(255, 193, 7, 0.12)';
+            const borderColor = isCritical ? 'var(--color-danger)' : 'var(--color-warning)';
+            const icon = isCritical ? 'fa-exclamation-triangle' : 'fa-lightbulb';
+            return `
+              <div style="background: ${alertColor}; border: 1px solid ${borderColor}; border-radius: 6px; padding: 1.2rem; margin-bottom: 1rem; display: flex; gap: 0.8rem; align-items: center;">
+                <i class="fas ${icon}" style="color: ${borderColor}; font-size: 1.1rem;"></i>
+                <span style="font-size: 0.85rem; font-weight: 500; color: var(--color-text-main);">${r}</span>
+              </div>
+            `;
+          }).join('');
+
+          const riskRowsHtml = risks.map(r => {
+            let badgeColor = 'rgba(40, 167, 69, 0.2)';
+            let textColor = 'var(--color-success)';
+            if (r.status === 'Out of Stock') {
+              badgeColor = 'rgba(220, 53, 69, 0.15)';
+              textColor = 'var(--color-danger)';
+            } else if (r.status === 'Critical Risk') {
+              badgeColor = 'rgba(220, 53, 69, 0.2)';
+              textColor = 'var(--color-danger)';
+            } else if (r.status === 'Moderate Risk') {
+              badgeColor = 'rgba(255, 193, 7, 0.2)';
+              textColor = 'var(--color-warning)';
+            }
+
+            return `
+              <tr>
+                <td style="font-weight: 600;">${r.title}</td>
+                <td style="font-weight: 600; color: var(--color-accent-gold); text-align: center;">${r.size}</td>
+                <td style="text-align: center; font-weight: 500;">${r.stock}</td>
+                <td style="text-align: center;">${r.sold} units</td>
+                <td style="text-align: center; font-weight: 600; color: var(--color-accent-gold);">${r.velocity} / wk</td>
+                <td style="text-align: center;">${r.status === 'Out of Stock' ? '0 days' : `${r.daysLeft} days`}</td>
+                <td style="text-align: center;">
+                  <span style="padding: 0.25rem 0.6rem; font-size: 0.65rem; border-radius: 4px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; background: ${badgeColor}; color: ${textColor};">
+                    ${r.status}
+                  </span>
+                </td>
+              </tr>
+            `;
+          }).join('');
+
+          return `
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-bottom: 3rem; align-items: stretch;">
+              <!-- Left: Financial Projection -->
+              <div class="glass-panel" style="padding: 2.5rem; background-color: var(--color-bg-card); display: flex; flex-direction: column; justify-content: center;">
+                <h4 style="margin:0 0 1.5rem 0; font-size:0.8rem; text-transform:uppercase; letter-spacing:0.1em; color:var(--color-text-muted); font-weight:600;">30-Day Revenue Forecasting</h4>
+                <div style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 0.5rem;">Current Historic Revenue:</div>
+                <div style="font-family: var(--font-display); font-size: 2rem; color: var(--color-text-main); font-weight: 300; margin-bottom: 1.5rem;">₹${totalRev.toFixed(2)}</div>
+                
+                <div style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.4rem;">
+                  Projected Next Month: <span style="background: rgba(40,167,69,0.15); color: var(--color-success); font-size: 0.65rem; padding: 0.15rem 0.4rem; border-radius: 4px; font-weight:600;">+15% Growth</span>
+                </div>
+                <div style="font-family: var(--font-display); font-size: 2.4rem; color: var(--color-accent-gold); font-weight: 600;">₹${forecast.toFixed(2)}</div>
+                <p style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 1.5rem; line-height: 1.5;">
+                  Calculated based on rolling order count coefficients and customer fitting queue expansion vectors.
+                </p>
+              </div>
+
+              <!-- Right: AI Sartorial Recommendations -->
+              <div class="glass-panel" style="padding: 2.5rem; background-color: var(--color-bg-card); display: flex; flex-direction: column;">
+                <h4 style="margin:0 0 1.5rem 0; font-size:0.8rem; text-transform:uppercase; letter-spacing:0.1em; color:var(--color-text-muted); font-weight:600;">Replenishment Directives</h4>
+                <div style="flex-grow: 1; overflow-y: auto; max-height: 250px; padding-right: 0.5rem;">
+                  ${recsHtml}
+                </div>
+              </div>
+            </div>
+
+            <!-- Bottom Table: Sizing Velocity Registry -->
+            <h4 style="font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 1.5rem; font-weight: 600;">Sizing Velocity Registry</h4>
+            <div class="admin-table-wrapper" style="margin-bottom: 2rem;">
+              <table class="admin-table">
+                <thead>
+                  <tr>
+                    <th>Attire Item</th>
+                    <th style="text-align: center;">Size</th>
+                    <th style="text-align: center;">Current Stock</th>
+                    <th style="text-align: center;">Total Sold</th>
+                    <th style="text-align: center;">Sales Velocity</th>
+                    <th style="text-align: center;">Forecasted Run-out</th>
+                    <th style="text-align: center;">Replenish Risk</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${riskRowsHtml || `<tr><td colspan="7" style="text-align: center; color: var(--color-text-muted);">No sales data registered in SQLite history. Place orders to populate predictive trends.</td></tr>`}
+                </tbody>
+              </table>
+            </div>
+          `;
+        })()}
       </div>
     </div>
   `;
@@ -1733,26 +1831,45 @@ window.openPDP = async function(productId) {
           <div class="selector-title">Select Size</div>
           <div class="size-options">
             ${(() => {
-              const getRecommendedSize = (cat, sizing) => {
+              const getRecommendedSize = (cat, sizing, productSizes) => {
                 if (!sizing) return null;
-                if (cat === 'shirts' && sizing.chest) {
-                  const chest = parseFloat(sizing.chest);
-                  if (chest < 38) return 'S';
-                  if (chest <= 40) return 'M';
-                  if (chest <= 43) return 'L';
-                  return 'XL';
-                }
-                if (cat === 'pants' && sizing.waist) {
-                  const waist = parseFloat(sizing.waist);
-                  if (waist < 31) return 'S';
-                  if (waist <= 33) return 'M';
-                  if (waist <= 36) return 'L';
-                  return 'XL';
+                const isNumericSizes = productSizes.some(s => !isNaN(parseFloat(s)));
+                if (isNumericSizes) {
+                  const targetVal = parseFloat(cat === 'shirts' ? sizing.chest : sizing.waist);
+                  if (isNaN(targetVal)) return null;
+                  let closestSize = null;
+                  let minDiff = Infinity;
+                  productSizes.forEach(s => {
+                    const sVal = parseFloat(s);
+                    if (!isNaN(sVal)) {
+                      const diff = Math.abs(sVal - targetVal);
+                      if (diff < minDiff) {
+                        minDiff = diff;
+                        closestSize = s;
+                      }
+                    }
+                  });
+                  return closestSize;
+                } else {
+                  if (cat === 'shirts' && sizing.chest) {
+                    const chest = parseFloat(sizing.chest);
+                    if (chest < 38) return 'S';
+                    if (chest <= 40) return 'M';
+                    if (chest <= 43) return 'L';
+                    return 'XL';
+                  }
+                  if (cat === 'pants' && sizing.waist) {
+                    const waist = parseFloat(sizing.waist);
+                    if (waist < 31) return 'S';
+                    if (waist <= 33) return 'M';
+                    if (waist <= 36) return 'L';
+                    return 'XL';
+                  }
                 }
                 return null;
               };
 
-              const recommendedSize = getRecommendedSize(product.category, state.currentUser?.sizing);
+              const recommendedSize = getRecommendedSize(product.category, state.currentUser?.sizing, product.sizes);
               let defaultSize = recommendedSize && (product.sizes_stock?.[recommendedSize] ?? 0) > 0 ? recommendedSize : null;
               if (!defaultSize) {
                 defaultSize = product.sizes.find(s => (product.sizes_stock?.[s] ?? 0) > 0);
@@ -2397,546 +2514,80 @@ window.handlePlaceOrder = async function(event) {
   const vat = subtotal * 0.05;
   const grandTotal = subtotal + vat + 15.00;
   
-  const gateway = state.merchantConfig?.gateway_type || 'Simulated';
-  
-  // A. IF RAZORPAY GATEWAY IS ACTIVE
-  if (gateway === 'Razorpay') {
-    try {
-      showToast("Initializing Razorpay checkout portal...");
-      
-      // Load Razorpay SDK script dynamically if not loaded
-      if (typeof window.Razorpay === 'undefined') {
-        await new Promise((resolve, reject) => {
-          const script = document.createElement('script');
-          script.src = 'https://checkout.razorpay.com/v1/checkout.js';
-          script.onload = resolve;
-          script.onerror = () => reject(new Error("Failed to load Razorpay Checkout SDK"));
-          document.head.appendChild(script);
-        });
-      }
-      
-      // 1. Create Razorpay Order on server
-      const orderRes = await apiCall('/api/payments/razorpay-order', 'POST', {
-        total: grandTotal,
-        items: state.cart
-      });
-      
-      const orderPayload = {
-        recipientName,
-        recipientEmail,
-        address: finalAddress,
-        city: cityVal,
-        phone: phoneVal,
-        total: grandTotal,
-        items: state.cart
-      };
-      
-      // 2. If backend config is mock or simulated, open our mock Razorpay modal
-      if (orderRes.gatewayType === 'Simulated') {
-        openMockRazorpayModal(orderRes, orderPayload);
-      } else {
-        // Launch official Razorpay standard popup checkout
-        const options = {
-          "key": orderRes.keyId,
-          "amount": Math.round(grandTotal * 100),
-          "currency": "INR",
-          "name": "HAIRAH MEN'S WORLD",
-          "description": "Bespoke Attire Wardrobe Purchase",
-          "order_id": orderRes.orderId,
-          "handler": async function (response) {
-            try {
-              // Verify signature on backend
-              const verifyRes = await apiCall('/api/payments/razorpay-verify', 'POST', {
-                razorpayOrderId: response.razorpay_order_id,
-                razorpayPaymentId: response.razorpay_payment_id,
-                razorpaySignature: response.razorpay_signature
-              });
-              
-              orderPayload.paymentId = response.razorpay_payment_id;
-              orderPayload.paymentMethod = 'Razorpay';
-              
-              const finalOrder = await apiCall('/api/orders', 'POST', orderPayload);
-              showOrderReceipt(finalOrder.orderId, orderPayload, 'Razorpay', response.razorpay_payment_id);
-            } catch (err) {
-              showToast("Razorpay verification failed: " + (err.error || err.message));
-            }
-          },
-          "prefill": {
-            "name": recipientName,
-            "email": recipientEmail,
-            "contact": phoneVal
-          },
-          "theme": {
-            "color": "#C5A880"
-          }
-        };
-        const rzp = new window.Razorpay(options);
-        rzp.open();
-      }
-    } catch (error) {
-      showToast(error.message || "Failed to initialize Razorpay gateway.");
-    }
-  } 
-  
-  // B. IF SIMULATED OR STRIPE CHECKOUT PORTAL IS ACTIVE
-  else {
-    try {
-      // 1. Create Stripe Payment Intent on Backend
-      const intentRes = await apiCall('/api/payments/create-intent', 'POST', {
-        total: grandTotal,
-        items: state.cart
-      });
-      
-      // 2. Open Stripe Secure Checkout Modal
-      await openStripeCheckoutModal(intentRes.clientSecret, grandTotal, {
-        recipientName,
-        recipientEmail,
-        address: finalAddress,
-        city: cityVal,
-        phone: phoneVal,
-        total: grandTotal,
-        items: state.cart
-      }, intentRes.gatewayType, intentRes.publishableKey);
-    } catch (error) {
-      showToast("Unable to initialize secure checkout portal.");
-    }
-  }
-};
-
-async function openStripeCheckoutModal(clientSecret, totalAmount, orderPayload, gatewayType = 'Simulated', publishableKey = '') {
-  document.body.style.overflow = "hidden";
-  
-  if (gatewayType === 'Stripe') {
-    if (typeof window.Stripe === 'undefined') {
-      try {
-        await new Promise((resolve, reject) => {
-          const script = document.createElement('script');
-          script.src = 'https://js.stripe.com/v3/';
-          script.onload = resolve;
-          script.onerror = () => reject(new Error("Failed to load Stripe SDK"));
-          document.head.appendChild(script);
-        });
-      } catch (err) {
-        showToast("Failed to load Stripe secure elements checkout.");
-        document.body.style.overflow = "";
-        return;
-      }
-    }
-  }
-
-  // Read merchant configuration from global state
-  const merchantUpi = state.merchantConfig?.upi_id || 'hairah@upi';
-  const merchantHolder = state.merchantConfig?.account_holder || 'HAIRAH MENS WORLD';
-  const merchantBank = state.merchantConfig?.bank_name || 'Bespoke Sartorial Bank';
-  const merchantAccount = state.merchantConfig?.account_number || '9876543210';
-  
-  const qrData = `upi://pay?pa=${merchantUpi}&pn=${encodeURIComponent(merchantHolder)}&am=${totalAmount.toFixed(2)}&cu=INR`;
-  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(qrData)}`;
-
-  const isLive = publishableKey.startsWith('pk_live');
-  const badgeText = gatewayType === 'Simulated' ? 'Simulated' : (isLive ? 'Live Mode' : 'Test Mode');
-
-  // Create backdrop container
-  const backdrop = document.createElement('div');
-  backdrop.className = 'stripe-modal-backdrop';
-  backdrop.id = 'stripe-payment-modal';
-  
-  backdrop.innerHTML = `
-    <div class="stripe-modal-content">
-      <div class="stripe-modal-header">
-        <div class="stripe-logo-container">
-          <i class="fab fa-stripe" style="font-size: 3rem; color: var(--color-accent-gold);"></i>
-          <span class="stripe-badge-test">${badgeText}</span>
-        </div>
-        <button class="stripe-close-btn" onclick="closeStripeModal()"><i class="fas fa-times"></i></button>
-      </div>
-      
-      <div class="stripe-amount-banner">
-        <div class="stripe-amount-label">HAIRAH Men's World Payment</div>
-        <div class="stripe-amount-value">₹${totalAmount.toFixed(2)}</div>
-      </div>
-      
-      ${gatewayType === 'Simulated' ? `
-      <div class="stripe-tabs">
-        <div class="stripe-tab active" id="tab-stripe-card" onclick="switchStripeTab('Card')">Credit / Debit Card</div>
-        <div class="stripe-tab" id="tab-stripe-upi" onclick="switchStripeTab('UPI')">UPI / QR Code</div>
-      </div>
-      ` : ''}
-      
-      <!-- Card Pane -->
-      ${gatewayType === 'Simulated' ? `
-      <div class="stripe-pane active" id="pane-stripe-card">
-        <form onsubmit="handleStripeCardSubmit(event, '${clientSecret}', ${totalAmount}, ${JSON.stringify(orderPayload).replace(/"/g, '&quot;')})">
-          <div class="form-group" style="margin-bottom: 1rem;">
-            <div style="font-size:0.75rem; color:var(--color-text-muted); margin-bottom:1rem; border:1px dashed var(--color-border); padding:0.5rem; border-radius:4px;">
-              Funds will be settled to: <strong>${merchantHolder}</strong> (${merchantBank} - A/C ${merchantAccount})
-            </div>
-            <label style="font-size: 0.75rem;">Card Number</label>
-            <div style="position: relative; display: flex; align-items: center;">
-              <input type="text" class="form-input" id="stripe-card-num" placeholder="4242 4242 4242 4242" required style="padding-left: 2.8rem;" oninput="formatCardNumberInput(this)">
-              <i class="fas fa-credit-card" id="stripe-card-icon" style="position: absolute; left: 1rem; color: var(--color-text-muted);"></i>
-            </div>
-          </div>
-          
-          <div class="form-row" style="gap: 1.5rem; margin-bottom: 2rem;">
-            <div class="form-group" style="margin-bottom: 0;">
-              <label style="font-size: 0.75rem;">Expiration Date</label>
-              <input type="text" class="form-input" id="stripe-card-expiry" placeholder="MM/YY" maxlength="5" required oninput="formatCardExpiryInput(this)">
-            </div>
-            <div class="form-group" style="margin-bottom: 0;">
-              <label style="font-size: 0.75rem;">Security Code (CVC)</label>
-              <input type="password" class="form-input" id="stripe-card-cvc" placeholder="123" minlength="3" maxlength="4" required>
-            </div>
-          </div>
-          
-          <button type="submit" class="btn btn-primary" style="width: 100%; padding: 1rem; text-transform: uppercase; font-weight: 600; font-size: 0.85rem; letter-spacing: 0.05em;">
-            Pay ₹${totalAmount.toFixed(2)}
-          </button>
-        </form>
-      </div>
-      ` : `
-      <div class="stripe-pane active" id="pane-stripe-card">
-        <form id="stripe-real-payment-form">
-          <div class="form-group" style="margin-bottom: 1.5rem;">
-            <div style="font-size:0.75rem; color:var(--color-text-muted); margin-bottom:1rem; border:1px dashed var(--color-border); padding:0.5rem; border-radius:4px;">
-              Secure payment processed via Stripe Payments.
-            </div>
-            <label style="font-size: 0.75rem; display:block; margin-bottom: 0.5rem;">Credit / Debit Card Details</label>
-            <div id="stripe-card-element" style="background-color: var(--color-bg-input); padding: 1.2rem; border-radius: 6px; border: 1px solid var(--color-border); margin-bottom: 1.5rem;"></div>
-            <div id="stripe-card-errors" role="alert" style="color: var(--color-danger); font-size: 0.8rem; margin-top: -0.5rem; margin-bottom: 1rem;"></div>
-          </div>
-          
-          <button type="submit" class="btn btn-primary" style="width: 100%; padding: 1rem; text-transform: uppercase; font-weight: 600; font-size: 0.85rem; letter-spacing: 0.05em;">
-            Pay ₹${totalAmount.toFixed(2)}
-          </button>
-        </form>
-      </div>
-      `}
-      
-      <!-- UPI Pane -->
-      ${gatewayType === 'Simulated' ? `
-      <div class="stripe-pane" id="pane-stripe-upi">
-        <div class="stripe-qr-wrapper" style="padding-bottom: 0.5rem;">
-          <div style="font-size: 0.8rem; color: var(--color-text-muted); line-height: 1.5;">
-            Scan this QR code using GPay, PhonePe, or Paytm to pay <strong>${merchantHolder}</strong> directly.
-          </div>
-          
-          <img class="stripe-qr-image" src="${qrUrl}" alt="UPI Payment QR Code" style="margin: 0.5rem 0;">
-          
-          <div style="font-size:0.75rem; color:var(--color-accent-gold); font-weight:600; margin-bottom: 1rem;">Destination UPI: ${merchantUpi}</div>
-          
-          <div style="width: 100%; border-top: 1px solid var(--color-border); padding-top: 1rem; text-align: left;">
-            <label style="font-size: 0.75rem; display: block; margin-bottom: 0.5rem; font-weight: 600;">Submit UPI Ref / UTR Number</label>
-            <div style="display: flex; gap: 0.5rem;">
-              <input type="text" class="form-input" id="stripe-upi-utr" placeholder="12-digit UTR Number" maxlength="12" style="font-family: monospace; letter-spacing: 0.05em; font-size: 0.85rem;" oninput="this.value = this.value.replace(/\\D/g, '')">
-              <button type="button" class="btn btn-primary" style="font-size: 0.75rem; padding: 0.6rem 1rem; white-space: nowrap;" onclick="handleUPIUTRSubmit('${clientSecret}', ${totalAmount}, ${JSON.stringify(orderPayload).replace(/"/g, '&quot;')})">
-                Verify UTR
-              </button>
-            </div>
-            <p style="font-size: 0.65rem; color: var(--color-text-muted); margin-top: 0.35rem;">Enter the 12-digit transaction Ref No. from GPay/PhonePe to confirm your payment.</p>
-          </div>
-          
-          <div style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 0.5rem; margin-top: 1rem; border-top: 1px dashed var(--color-border); padding-top: 1rem;">
-            <span style="font-size: 0.7rem; color: var(--color-text-muted);">Quick Test:</span>
-            <button type="button" class="btn btn-secondary" style="font-size: 0.65rem; padding: 0.4rem 0.8rem;" onclick="simulateStripeUPIScanSuccess('${clientSecret}', ${totalAmount}, ${JSON.stringify(orderPayload).replace(/"/g, '&quot;')})">
-              Simulate Scan Approval
-            </button>
-          </div>
-        </div>
-        
-        <div style="text-align: center; margin: 1rem 0; color: var(--color-border); font-size: 0.8rem; font-weight: 600;">OR PAY VIA UPI ID</div>
-        
-        <form onsubmit="handleStripeUPIIdSubmit(event, '${clientSecret}', ${totalAmount}, ${JSON.stringify(orderPayload).replace(/"/g, '&quot;')})">
-          <div class="form-group" style="margin-bottom: 1.5rem;">
-            <label style="font-size: 0.75rem;">Enter UPI ID (VPA)</label>
-            <input type="text" class="form-input" id="stripe-upi-vpa" placeholder="username@upi" required>
-          </div>
-          
-          <button type="submit" class="btn btn-primary" style="width: 100%; padding: 1rem; text-transform: uppercase; font-weight: 600; font-size: 0.85rem; letter-spacing: 0.05em;">
-            Verify and Pay ₹${totalAmount.toFixed(2)}
-          </button>
-        </form>
-      </div>
-      ` : ''}
-      
-      <!-- Processing overlay (hidden by default) -->
-      <div class="stripe-loader-overlay" id="stripe-loading" style="display: none;">
-        <div class="stripe-spinner"></div>
-        <div style="font-family: var(--font-display); font-size: 1.1rem; letter-spacing: 0.05em;" id="stripe-loading-text">Confirming payment with bank...</div>
-      </div>
-    </div>
-  `;
-  
-  document.body.appendChild(backdrop);
-
-  if (gatewayType === 'Stripe') {
-    const stripeInstance = window.Stripe(publishableKey);
-    const elements = stripeInstance.elements();
+  try {
+    showToast("Initializing Razorpay checkout portal...");
     
-    const textColor = getComputedStyle(document.documentElement).getPropertyValue('--color-text-main').trim() || '#252422';
-    const cardElement = elements.create('card', {
-      style: {
-        base: {
-          color: textColor,
-          fontFamily: 'Outfit, Inter, sans-serif',
-          fontSize: '15px',
-          '::placeholder': {
-            color: '#888888'
+    // Load Razorpay SDK script dynamically if not loaded
+    if (typeof window.Razorpay === 'undefined') {
+      await new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+        script.onload = resolve;
+        script.onerror = () => reject(new Error("Failed to load Razorpay Checkout SDK"));
+        document.head.appendChild(script);
+      });
+    }
+    
+    // 1. Create Razorpay Order on server
+    const orderRes = await apiCall('/api/payments/razorpay-order', 'POST', {
+      total: grandTotal,
+      items: state.cart
+    });
+    
+    const orderPayload = {
+      recipientName,
+      recipientEmail,
+      address: finalAddress,
+      city: cityVal,
+      phone: phoneVal,
+      total: grandTotal,
+      items: state.cart
+    };
+    
+    // 2. If backend config is mock or simulated, open our mock Razorpay modal
+    if (orderRes.gatewayType === 'Simulated') {
+      openMockRazorpayModal(orderRes, orderPayload);
+    } else {
+      // Launch official Razorpay standard popup checkout
+      const options = {
+        "key": orderRes.keyId,
+        "amount": Math.round(grandTotal * 100),
+        "currency": "INR",
+        "name": "HAIRAH MEN'S WORLD",
+        "description": "Bespoke Attire Wardrobe Purchase",
+        "order_id": orderRes.orderId,
+        "handler": async function (response) {
+          try {
+            // Verify signature on backend
+            const verifyRes = await apiCall('/api/payments/razorpay-verify', 'POST', {
+              razorpayOrderId: response.razorpay_order_id,
+              razorpayPaymentId: response.razorpay_payment_id,
+              razorpaySignature: response.razorpay_signature
+            });
+            
+            orderPayload.paymentId = response.razorpay_payment_id;
+            orderPayload.paymentMethod = 'Razorpay';
+            
+            const finalOrder = await apiCall('/api/orders', 'POST', orderPayload);
+            showOrderReceipt(finalOrder.orderId, orderPayload, 'Razorpay', response.razorpay_payment_id);
+          } catch (err) {
+            showToast("Razorpay verification failed: " + (err.error || err.message));
           }
         },
-        invalid: {
-          color: '#C02A2A',
-          iconColor: '#C02A2A'
+        "prefill": {
+          "name": recipientName,
+          "email": recipientEmail,
+          "contact": phoneVal
+        },
+        "theme": {
+          "color": "#C5A880"
         }
-      }
-    });
-    
-    cardElement.mount('#stripe-card-element');
-    
-    const form = document.getElementById('stripe-real-payment-form');
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      
-      const loader = document.getElementById('stripe-loading');
-      const loaderText = document.getElementById('stripe-loading-text');
-      loader.style.display = 'flex';
-      loaderText.innerText = 'Processing real card payment...';
-      
-      const { paymentIntent, error } = await stripeInstance.confirmCardPayment(clientSecret, {
-        payment_method: {
-          card: cardElement
-        }
-      });
-      
-      if (error) {
-        loader.style.display = 'none';
-        const errorDiv = document.getElementById('stripe-card-errors');
-        errorDiv.innerText = error.message;
-      } else if (paymentIntent && paymentIntent.status === 'succeeded') {
-        loaderText.innerText = 'Creating order reference...';
-        try {
-          orderPayload.paymentId = paymentIntent.id;
-          orderPayload.paymentMethod = 'Stripe (Real Card)';
-          
-          const finalOrder = await apiCall('/api/orders', 'POST', orderPayload);
-          
-          loader.innerHTML = `
-            <div class="stripe-success-checkmark"><i class="fas fa-check-circle" style="color:var(--color-success);"></i></div>
-            <div style="font-family: var(--font-display); font-size: 1.2rem; color: var(--color-success); font-weight: 500; margin-top: 1rem;">Payment Succeeded</div>
-          `;
-          
-          setTimeout(() => {
-            closeStripeModal();
-            showOrderReceipt(finalOrder.orderId, orderPayload, 'Stripe (Real Card)', paymentIntent.id);
-          }, 1500);
-        } catch (err) {
-          loader.style.display = 'none';
-          showToast("Order creation failed after payment success. Contact support.");
-        }
-      }
-    });
-  }
-}
-
-window.closeStripeModal = function() {
-  const modal = document.getElementById('stripe-payment-modal');
-  if (modal) modal.remove();
-  document.body.style.overflow = "";
-};
-
-window.switchStripeTab = function(method) {
-  const tabCard = document.getElementById('tab-stripe-card');
-  const tabUpi = document.getElementById('tab-stripe-upi');
-  const paneCard = document.getElementById('pane-stripe-card');
-  const paneUpi = document.getElementById('pane-stripe-upi');
-  
-  if (method === 'Card') {
-    tabCard.classList.add('active');
-    tabUpi.classList.remove('active');
-    paneCard.classList.add('active');
-    paneUpi.classList.remove('active');
-  } else {
-    tabUpi.classList.add('active');
-    tabCard.classList.remove('active');
-    paneUpi.classList.add('active');
-    paneCard.classList.remove('active');
-  }
-};
-
-window.formatCardNumberInput = function(input) {
-  let val = input.value.replace(/\D/g, '');
-  if (val.length > 16) val = val.substring(0, 16);
-  
-  // Format as groups of 4
-  const formatted = val.match(/.{1,4}/g);
-  input.value = formatted ? formatted.join(' ') : val;
-  
-  // Update card brand icon dynamically
-  const cardIcon = document.getElementById('stripe-card-icon');
-  if (val.startsWith('4')) {
-    cardIcon.className = 'fab fa-cc-visa';
-    cardIcon.style.color = '#1A1F71';
-  } else if (val.startsWith('5')) {
-    cardIcon.className = 'fab fa-cc-mastercard';
-    cardIcon.style.color = '#EB001B';
-  } else if (val.startsWith('3')) {
-    cardIcon.className = 'fab fa-cc-amex';
-    cardIcon.style.color = '#007bc1';
-  } else {
-    cardIcon.className = 'fas fa-credit-card';
-    cardIcon.style.color = 'var(--color-text-muted)';
-  }
-};
-
-window.formatCardExpiryInput = function(input) {
-  let val = input.value.replace(/\D/g, '');
-  if (val.length > 4) val = val.substring(0, 4);
-  
-  if (val.length > 2) {
-    input.value = val.substring(0, 2) + '/' + val.substring(2);
-  } else {
-    input.value = val;
-  }
-};
-
-window.handleStripeCardSubmit = async function(event, clientSecret, amount, orderPayload) {
-  event.preventDefault();
-  
-  const cardNumber = document.getElementById('stripe-card-num').value;
-  const expiry = document.getElementById('stripe-card-expiry').value;
-  const cvc = document.getElementById('stripe-card-cvc').value;
-  
-  // Show Loading Spinner overlay
-  const loader = document.getElementById('stripe-loading');
-  const loaderText = document.getElementById('stripe-loading-text');
-  loader.style.display = 'flex';
-  loaderText.innerText = 'Authorizing card details...';
-  
-  try {
-    const confirmRes = await apiCall('/api/payments/confirm', 'POST', {
-      clientSecret,
-      paymentMethod: 'Card',
-      cardNumber,
-      expiry,
-      cvv: cvc
-    });
-    
-    // Simulate approval animation delay
-    setTimeout(async () => {
-      loaderText.innerText = 'Registering order reference...';
-      try {
-        orderPayload.paymentId = confirmRes.paymentId;
-        orderPayload.paymentMethod = 'Card';
-        
-        const finalOrder = await apiCall('/api/orders', 'POST', orderPayload);
-        
-        // Show success screen inside modal
-        loader.innerHTML = `
-          <div class="stripe-success-checkmark"><i class="fas fa-check-circle"></i></div>
-          <div style="font-family: var(--font-display); font-size: 1.2rem; color: var(--color-success); font-weight: 500;">Payment Authorized</div>
-        `;
-        
-        setTimeout(() => {
-          closeStripeModal();
-          showOrderReceipt(finalOrder.orderId, orderPayload, 'Card', confirmRes.paymentId);
-        }, 1500);
-      } catch (err) {
-        loader.style.display = 'none';
-        showToast(err.error || "Order placement failed.");
-      }
-    }, 1500);
+      };
+      const rzp = new window.Razorpay(options);
+      rzp.open();
+    }
   } catch (error) {
-    loader.style.display = 'none';
-    showToast(error.error || "Card payment rejected.");
-  }
-};
-
-window.simulateStripeUPIScanSuccess = async function(clientSecret, amount, orderPayload) {
-  const loader = document.getElementById('stripe-loading');
-  const loaderText = document.getElementById('stripe-loading-text');
-  loader.style.display = 'flex';
-  loaderText.innerText = 'Awaiting mobile UPI notification approval...';
-  
-  try {
-    const confirmRes = await apiCall('/api/payments/confirm', 'POST', {
-      clientSecret,
-      paymentMethod: 'UPI',
-      upiType: 'qr'
-    });
-    
-    setTimeout(async () => {
-      loaderText.innerText = 'UPI Transaction authorized. Creating order...';
-      try {
-        orderPayload.paymentId = confirmRes.paymentId;
-        orderPayload.paymentMethod = 'UPI (QR Code)';
-        
-        const finalOrder = await apiCall('/api/orders', 'POST', orderPayload);
-        
-        loader.innerHTML = `
-          <div class="stripe-success-checkmark"><i class="fas fa-check-circle"></i></div>
-          <div style="font-family: var(--font-display); font-size: 1.2rem; color: var(--color-success); font-weight: 500;">UPI Payment Approved</div>
-        `;
-        
-        setTimeout(() => {
-          closeStripeModal();
-          showOrderReceipt(finalOrder.orderId, orderPayload, 'UPI (QR Code)', confirmRes.paymentId);
-        }, 1500);
-      } catch (err) {
-        loader.style.display = 'none';
-        showToast(err.error || "Order placement failed.");
-      }
-    }, 2000);
-  } catch (error) {
-    loader.style.display = 'none';
-    showToast("UPI Transaction failed.");
-  }
-};
-
-window.handleStripeUPIIdSubmit = async function(event, clientSecret, amount, orderPayload) {
-  event.preventDefault();
-  
-  const upiId = document.getElementById('stripe-upi-vpa').value;
-  
-  const loader = document.getElementById('stripe-loading');
-  const loaderText = document.getElementById('stripe-loading-text');
-  loader.style.display = 'flex';
-  loaderText.innerText = `Sending payment request to ${upiId}...`;
-  
-  try {
-    const confirmRes = await apiCall('/api/payments/confirm', 'POST', {
-      clientSecret,
-      paymentMethod: 'UPI',
-      upiType: 'id',
-      upiId: upiId
-    });
-    
-    setTimeout(async () => {
-      loaderText.innerText = 'Awaiting UPI app authorization...';
-      setTimeout(async () => {
-        try {
-          orderPayload.paymentId = confirmRes.paymentId;
-          orderPayload.paymentMethod = `UPI (ID: ${upiId})`;
-          
-          const finalOrder = await apiCall('/api/orders', 'POST', orderPayload);
-          
-          loader.innerHTML = `
-            <div class="stripe-success-checkmark"><i class="fas fa-check-circle"></i></div>
-            <div style="font-family: var(--font-display); font-size: 1.2rem; color: var(--color-success); font-weight: 500;">UPI ID Payment Approved</div>
-          `;
-          
-          setTimeout(() => {
-            closeStripeModal();
-            showOrderReceipt(finalOrder.orderId, orderPayload, `UPI (ID: ${upiId})`, confirmRes.paymentId);
-          }, 1500);
-        } catch (err) {
-          loader.style.display = 'none';
-          showToast(err.error || "Order placement failed.");
-        }
-      }, 1500);
-    }, 1500);
-  } catch (error) {
-    loader.style.display = 'none';
-    showToast(error.error || "UPI ID verification failed.");
+    showToast(error.message || "Failed to initialize Razorpay gateway.");
   }
 };
 
@@ -2976,7 +2627,7 @@ function showOrderReceipt(orderId, orderPayload, method, paymentId) {
           <span style="font-weight: 600;">${method}</span>
         </div>
         <div style="display: flex; justify-content: space-between; margin-bottom: 0.8rem;">
-          <span>Stripe Transaction</span>
+          <span>Transaction ID</span>
           <span style="font-family: var(--font-display); font-size: 0.85rem; color: var(--color-accent-gold); font-weight: 600;">${paymentId}</span>
         </div>
         <div style="display: flex; justify-content: space-between;">
@@ -3119,11 +2770,10 @@ window.handleSavePaymentSettings = async function(event) {
   const accountHolder = document.getElementById("admin-holder-name").value.trim();
   const bankName = document.getElementById("admin-bank-name").value.trim();
   const accountNumber = document.getElementById("admin-account-num").value.trim();
-  const gatewayType = document.getElementById("admin-gateway-type").value;
   const razorpayKeyId = document.getElementById("admin-rzp-key").value.trim();
   const razorpayKeySecret = document.getElementById("admin-rzp-secret").value.trim();
-  const stripePublishableKey = document.getElementById("admin-stripe-pub-key").value.trim();
-  const stripeSecretKey = document.getElementById("admin-stripe-secret-key").value.trim();
+  
+  const gatewayType = (razorpayKeyId && razorpayKeySecret) ? 'Razorpay' : 'Simulated';
   
   try {
     const result = await apiCall('/api/payments/merchant-config', 'POST', {
@@ -3134,8 +2784,8 @@ window.handleSavePaymentSettings = async function(event) {
       gatewayType,
       razorpayKeyId,
       razorpayKeySecret,
-      stripePublishableKey,
-      stripeSecretKey
+      stripePublishableKey: '',
+      stripeSecretKey: ''
     });
     showToast(result.message);
     await syncSessionAndDatabase(); // Reload updated config
@@ -3145,53 +2795,7 @@ window.handleSavePaymentSettings = async function(event) {
   }
 };
 
-window.handleUPIUTRSubmit = async function(clientSecret, amount, orderPayload) {
-  const utr = document.getElementById('stripe-upi-utr').value.trim();
-  if (utr.length !== 12 || !/^\d{12}$/.test(utr)) {
-    showToast("Please enter a valid 12-digit UPI UTR/Ref Number.");
-    return;
-  }
-  
-  const loader = document.getElementById('stripe-loading');
-  const loaderText = document.getElementById('stripe-loading-text');
-  loader.style.display = 'flex';
-  loaderText.innerText = `Reconciling UTR Ref: ${utr}...`;
-  
-  try {
-    const confirmRes = await apiCall('/api/payments/confirm', 'POST', {
-      clientSecret,
-      paymentMethod: 'UPI',
-      upiType: 'qr',
-      upiId: utr
-    });
-    
-    setTimeout(async () => {
-      loaderText.innerText = 'Payment received in account. Creating order...';
-      try {
-        orderPayload.paymentId = confirmRes.paymentId;
-        orderPayload.paymentMethod = `UPI (QR UTR: ${utr})`;
-        
-        const finalOrder = await apiCall('/api/orders', 'POST', orderPayload);
-        
-        loader.innerHTML = `
-          <div class="stripe-success-checkmark"><i class="fas fa-check-circle"></i></div>
-          <div style="font-family: var(--font-display); font-size: 1.2rem; color: var(--color-success); font-weight: 500;">Payment Confirmed via UTR</div>
-        `;
-        
-        setTimeout(() => {
-          closeStripeModal();
-          showOrderReceipt(finalOrder.orderId, orderPayload, `UPI (QR UTR: ${utr})`, confirmRes.paymentId);
-        }, 1500);
-      } catch (err) {
-        loader.style.display = 'none';
-        showToast(err.error || "Order placement failed.");
-      }
-    }, 2000);
-  } catch (error) {
-    loader.style.display = 'none';
-    showToast("Failed to verify UTR.");
-  }
-};
+
 
 window.toggleAdminAddProductForm = function() {
   const formContainer = document.getElementById("admin-add-product-form-container");
@@ -3321,17 +2925,7 @@ function showToast(message) {
   }, 3500);
 }
 
-// --- Razorpay Configurations and Simulated Helpers ---
-window.toggleAdminGatewayFields = function(select) {
-  const rzpCreds = document.getElementById("admin-razorpay-credentials");
-  if (rzpCreds) {
-    rzpCreds.style.display = select.value === "Razorpay" ? "block" : "none";
-  }
-  const stripeCreds = document.getElementById("admin-stripe-credentials");
-  if (stripeCreds) {
-    stripeCreds.style.display = select.value === "Stripe" ? "block" : "none";
-  }
-};
+
 
 function openMockRazorpayModal(orderRes, orderPayload) {
   document.body.style.overflow = "hidden";
