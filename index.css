@@ -681,12 +681,14 @@ nav ul li.active a::after, nav ul li a:hover::after {
   padding: 2.5rem;
   display: flex;
   flex-direction: column;
-  transition: background-color var(--transition-smooth), transform var(--transition-smooth);
+  transition: background-color var(--transition-smooth), transform var(--transition-smooth), box-shadow var(--transition-smooth);
   cursor: pointer;
   position: relative;
 }
 .product-card:hover {
   background-color: var(--color-bg-base);
+  transform: translateY(-4px);
+  box-shadow: 0 12px 30px rgba(212, 175, 55, 0.08);
 }
 
 .product-img-wrapper {
@@ -2278,5 +2280,9 @@ footer {
     flex-direction: column;
     align-items: flex-start;
     gap: 0.4rem;
+  }
+  .product-card:hover {
+    transform: none !important;
+    box-shadow: none !important;
   }
 }
