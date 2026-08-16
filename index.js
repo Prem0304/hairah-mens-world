@@ -460,6 +460,11 @@ function getShopTemplate() {
             <span class="product-price">₹${p.price.toFixed(2)}</span>
           </div>
           <h3 class="product-title">${p.title}</h3>
+          ${p.isBestseller ? `
+            <div style="margin-top: 0.45rem; display: inline-flex; align-items: center; gap: 0.3rem; background: rgba(212, 175, 55, 0.08); color: var(--color-accent-gold); font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 0.2rem 0.5rem; border-radius: 3px; border: 1px solid rgba(212, 175, 55, 0.25);">
+              <i class="fas fa-bolt" style="font-size:0.6rem;"></i> Bestseller
+            </div>
+          ` : ''}
           
           <div class="product-card-footer">
             <div class="rating-stars">${starHtml}</div>

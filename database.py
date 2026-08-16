@@ -438,6 +438,11 @@ def get_all_products(include_hidden=False):
         cursor.execute('SELECT * FROM products WHERE is_visible = 1')
     rows = cursor.fetchall()
     
+    # Fetch sales totals per product to determine bestsellers based on real purchase velocities
+    cursor.execute('SELECT product_id, SUM(qty) as total_sold FROM order_items GROUP BY product_id')
+    sales_map = {row['product_id']: row['total_sold'] for row in cursor.fetchall()}
+    max_sold = max(sales_map.values()) if sales_map else 0
+    
     products = []
     for r in rows:
         p = dict(r)
@@ -447,6 +452,10 @@ def get_all_products(include_hidden=False):
         p['inStock'] = bool(p['in_stock'])
         p['isVisible'] = bool(p.get('is_visible', 1))
         p['categoryLabel'] = p.get('category_label', '')
+        
+        # Determine bestseller status (sold >= 1 and is at least 70% of maximum sales velocity)
+        sold_qty = sales_map.get(p['id'], 0)
+        p['isBestseller'] = bool(sold_qty > 0 and (max_sold > 0 and sold_qty >= max_sold * 0.7))
         
         # Fetch size stock dictionary
         cursor.execute('SELECT size, stock FROM product_sizes_stock WHERE product_id = ?', (p['id'],))
