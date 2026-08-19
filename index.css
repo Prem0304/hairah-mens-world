@@ -13,7 +13,7 @@
   --transition-smooth: 0.4s cubic-bezier(0.16, 1, 0.3, 1);
   --transition-fast: 0.2s ease;
   
-  --header-height: 90px;
+  --header-height: 105px;
   --max-width: 1600px;
 }
 
@@ -498,7 +498,7 @@ nav ul li.active a::after, nav ul li a:hover::after {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   max-width: var(--max-width);
-  margin: 0 auto 6rem;
+  margin: 0 auto 3rem;
   border-top: 1px solid var(--color-border);
   border-left: 1px solid var(--color-border);
   box-shadow: 0 10px 30px var(--color-shadow);
@@ -850,6 +850,11 @@ nav ul li.active a::after, nav ul li a:hover::after {
   background-color: var(--color-border);
   color: var(--color-accent-gold);
 }
+.pdp-back-btn:hover {
+  background-color: var(--color-border) !important;
+  color: var(--color-text-main) !important;
+  border-color: var(--color-accent-gold) !important;
+}
 
 .pdp-grid {
   display: grid;
@@ -960,6 +965,17 @@ nav ul li.active a::after, nav ul li a:hover::after {
   margin-top: 4rem;
   border-top: 1px solid var(--color-border);
   padding-top: 3rem;
+}
+.rec-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--color-accent-gold) !important;
+  box-shadow: 0 4px 12px rgba(197, 168, 128, 0.08);
+}
+.rec-card img {
+  transition: transform 0.3s ease;
+}
+.rec-card:hover img {
+  transform: scale(1.05);
 }
 .reviews-header {
   display: flex;
@@ -1334,9 +1350,19 @@ nav ul li.active a::after, nav ul li a:hover::after {
 /* Stats Cards */
 .admin-stats-ribbon {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 2rem;
   margin-bottom: 4rem;
+}
+.grid-two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+}
+.grid-two-col-uneven {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr;
+  gap: 2rem;
 }
 .stat-card {
   background-color: var(--color-bg-card);
@@ -1638,6 +1664,13 @@ input:checked + .slider:before {
   h3 { font-size: 1.4rem !important; }
   h4 { font-size: 1.1rem !important; }
   
+  .grid-two-col,
+  .grid-two-col-uneven,
+  .admin-stats-ribbon {
+    grid-template-columns: 1fr !important;
+    gap: 1.5rem !important;
+  }
+
   :root {
     --header-height: 80px;
   }
@@ -1756,8 +1789,8 @@ input:checked + .slider:before {
 footer {
   background-color: var(--color-bg-card);
   border-top: 1px solid var(--color-border);
-  padding: 5rem 2rem 2.5rem 2rem;
-  margin-top: 5rem;
+  padding: 6.5rem 3rem 3.5rem 3rem;
+  margin-top: 6.5rem;
   width: 100%;
 }
 
@@ -1766,8 +1799,8 @@ footer {
   margin: 0 auto;
   display: grid;
   grid-template-columns: 2fr 1fr 1fr 2fr;
-  gap: 4rem;
-  padding-bottom: 4rem;
+  gap: 5.5rem;
+  padding-bottom: 5rem;
   border-bottom: 1px solid var(--color-border);
 }
 
@@ -1816,7 +1849,7 @@ footer {
 .footer-bottom {
   max-width: var(--max-width);
   margin: 0 auto;
-  padding-top: 2rem;
+  padding-top: 3.5rem;
   display: flex;
   justify-content: space-between;
   align-items: center;

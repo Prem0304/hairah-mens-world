@@ -87,11 +87,11 @@ def api_login():
     if email == 'admin@hairah.com' and password == 'admin123':
         session['user_email'] = 'admin@hairah.com'
         session['user_role'] = 'admin'
-        session['user_name'] = 'Sartorial Director'
+        session['user_name'] = 'Store Director'
         
         admin_response = {
             "email": "admin@hairah.com",
-            "name": "Sartorial Director",
+            "name": "Store Director",
             "role": "admin",
             "sizing": None
         }
@@ -132,7 +132,7 @@ def api_me():
     if email == 'admin@hairah.com':
         admin_response = {
             "email": "admin@hairah.com",
-            "name": "Sartorial Director",
+            "name": "Store Director",
             "role": "admin",
             "sizing": None
         }
@@ -571,7 +571,7 @@ def api_create_razorpay_order():
             payload = {
                 "amount": int(total * 100), # Amount in paise
                 "currency": "INR",
-                "receipt": "receipt_sartorial_" + str(uuid.uuid4().hex[:8])
+                "receipt": "receipt_readymade_" + str(uuid.uuid4().hex[:8])
             }
             res = requests.post(url, json=payload, auth=auth, timeout=10)
             res_data = res.json()
@@ -632,6 +632,46 @@ def api_admin_ai_predictions():
         return jsonify({"error": "Forbidden"}), 403
     predictions = database.get_ai_predictions()
     return jsonify(predictions), 200
+
+@app.route('/api/coupons/validate', methods=['POST'])
+def api_validate_coupon():
+    data = request.json
+    if not data or 'code' not in data:
+        return jsonify({"error": "Missing coupon code"}), 400
+    res = database.validate_coupon(data['code'])
+    if res.get('valid'):
+        return jsonify(res), 200
+    return jsonify(res), 400
+
+@app.route('/api/admin/coupons', methods=['GET'])
+def api_admin_get_coupons():
+    if session.get('user_role') != 'admin':
+        return jsonify({"error": "Forbidden"}), 403
+    coupons = database.get_all_coupons()
+    return jsonify(coupons), 200
+
+@app.route('/api/admin/coupons', methods=['POST'])
+def api_admin_add_coupon():
+    if session.get('user_role') != 'admin':
+        return jsonify({"error": "Forbidden"}), 403
+    data = request.json
+    if not data or 'code' not in data or 'discountType' not in data or 'value' not in data:
+        return jsonify({"error": "Missing coupon details"}), 400
+    success, err = database.add_coupon(data['code'], data['discountType'], data['value'])
+    if success:
+        return jsonify({"message": "Coupon created successfully"}), 201
+    return jsonify({"error": err or "Failed to create coupon"}), 400
+
+@app.route('/api/admin/coupons/delete', methods=['POST', 'DELETE'])
+def api_admin_delete_coupon():
+    if session.get('user_role') != 'admin':
+        return jsonify({"error": "Forbidden"}), 403
+    data = request.json
+    if not data or 'code' not in data:
+        return jsonify({"error": "Missing coupon code"}), 400
+    database.delete_coupon(data['code'])
+    return jsonify({"message": "Coupon deleted successfully"}), 200
+
 
 if __name__ == '__main__':
     # Running on local port 5000

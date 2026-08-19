@@ -14,6 +14,9 @@ let state = {
   orders: [],         // Loaded from database
   users: [],          // Admin only: Customer database
   reviews: {},        // Loaded dynamically per product
+  appliedCoupon: null, // Active discount: { code, discountType, value }
+  coupons: [],        // Admin only: Active coupon records
+  pdpHistory: [],     // Visited products stack inside product modal sessions
   
   currentView: "home",
   activeFilter: "all",
@@ -191,6 +194,11 @@ async function syncSessionAndDatabase() {
         } catch (e) {
           state.aiPredictions = null;
         }
+        try {
+          state.coupons = await apiCall('/api/admin/coupons');
+        } catch (e) {
+          state.coupons = [];
+        }
       }
     } else {
       state.wishlist = [];
@@ -355,9 +363,9 @@ function getHomeTemplate() {
     <section class="hero" style="background-image: url('assets/hero_menswear.jpg');">
       <div class="hero-overlay"></div>
       <div class="hero-content">
-        <div class="hero-tagline">Premium Menswear Selection</div>
-        <h1 class="hero-title">Sartorial Precision.<br><span>Modern Silhouette.</span></h1>
-        <p class="hero-desc">Explore HAIRAH Men's World—where minimalism meets fine tailoring. Crafting elegant wardrobes featuring luxury shirts, pleated pants, and Pima cotton knitwear.</p>
+        <div class="hero-tagline">Premium Ready-made Selection</div>
+        <h1 class="hero-title">Ready-to-Wear Elegance.<br><span>Modern Silhouette.</span></h1>
+        <p class="hero-desc">Explore HAIRAH Men's World—where minimalism meets precision ready-to-wear clothing. Crafting elegant wardrobes featuring luxury shirts, pleated pants, and Pima cotton knitwear.</p>
         <div class="hero-actions">
           <button class="btn btn-primary" onclick="navigate('shop')">Shop Collections</button>
         </div>
@@ -398,21 +406,20 @@ function getHomeTemplate() {
       </div>
     </div>
 
-    <div class="feature-ribbon-grid">
-      <div class="feature-ribbon-item">
-        <i class="fas fa-gem"></i>
-        <h4>Exceptional Materials</h4>
-        <p>Two-ply Egyptian cotton, virgin tropical wools, and silk-blended knits.</p>
-      </div>
-      <div class="feature-ribbon-item">
-        <i class="fas fa-ruler-combined"></i>
-        <h4>Impeccable Cuts</h4>
-        <p>Refined slim and tailored silhouettes designed to retain natural posture.</p>
-      </div>
-      <div class="feature-ribbon-item">
-        <i class="fas fa-shipping-fast"></i>
-        <h4>Luxury Fitting Delivery</h4>
-        <p>Expedited processing with detailed quality verification before courier release.</p>
+    <!-- HAIRAH Club Instagram Invitation -->
+    <div class="club-invite-section" style="max-width: var(--max-width); margin: 4rem auto 1rem auto; padding: 0 1.5rem;">
+      <div class="glass-panel" style="padding: 3.5rem 2rem; text-align: center; border-radius: 8px; background-color: var(--color-bg-card); border: 1px solid var(--color-border); box-shadow: 0 10px 30px rgba(0,0,0,0.3); animation: fadeIn 0.4s ease-out;">
+        <span style="font-family: var(--font-display); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.2em; color: var(--color-accent-gold); font-weight: 600; display: block; margin-bottom: 0.8rem;">Sartorial Club Invitation</span>
+        <h3 style="font-family: var(--font-display); font-size: 1.8rem; font-weight: 300; margin-bottom: 1rem; letter-spacing: 0.05em; color: var(--color-text-main);">Join the HAIRAH Circle</h3>
+        <p style="color: var(--color-text-muted); font-size: 0.85rem; max-width: 600px; margin: 0 auto 2rem auto; line-height: 1.6;">
+          Follow our official Instagram journal to receive real-time updates on limited textile releases, private collection previews, and customer bespoke styling features.
+        </p>
+        
+        <div style="display: flex; justify-content: center; margin-top: 1rem;">
+          <a href="https://www.instagram.com/hairah_mens_world?igsh=MW05MHhlZDNpaHMyZg==" target="_blank" rel="noopener noreferrer" class="btn btn-primary" style="padding: 1rem 2.5rem; font-size: 0.85rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.6rem; text-decoration: none; font-weight: 600; letter-spacing: 0.05em;">
+            <i class="fab fa-instagram" style="font-size: 1.1rem;"></i> Join the Instagram Club
+          </a>
+        </div>
       </div>
     </div>
   `;
@@ -607,9 +614,19 @@ function getCheckoutTemplate() {
   }).join('');
 
   const subtotal = state.cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
-  const vat = subtotal * 0.05;
+  
+  let discount = 0;
+  if (state.appliedCoupon) {
+    if (state.appliedCoupon.discountType === 'percent') {
+      discount = subtotal * (state.appliedCoupon.value / 100);
+    } else {
+      discount = Math.min(state.appliedCoupon.value, subtotal);
+    }
+  }
+
+  const vat = Math.max(0, subtotal - discount) * 0.05;
   const shipping = 15.00;
-  const grandTotal = subtotal + vat + shipping;
+  const grandTotal = Math.max(0, subtotal - discount + vat + shipping);
 
   const cName = state.currentUser ? state.currentUser.name : '';
   const cEmail = state.currentUser ? state.currentUser.email : '';
@@ -703,15 +720,36 @@ function getCheckoutTemplate() {
               <span>Items Subtotal</span>
               <span>₹${subtotal.toFixed(2)}</span>
             </div>
+            
+            ${state.appliedCoupon ? `
+              <div class="summary-item" style="color: var(--color-accent-gold); font-weight: 500;">
+                <span>Discount (${state.appliedCoupon.code})</span>
+                <span>-₹${discount.toFixed(2)}</span>
+              </div>
+            ` : ''}
+
             <div class="summary-item">
-              <span>Sartorial Delivery</span>
+              <span>Delivery Charge</span>
               <span>₹${shipping.toFixed(2)}</span>
             </div>
             <div class="summary-item">
-              <span>VAT / Styling Surcharge (5%)</span>
+              <span>GST (5%)</span>
               <span>₹${vat.toFixed(2)}</span>
             </div>
             
+            <!-- Promo Code Input -->
+            <div style="border-top: 1px dashed var(--color-border); border-bottom: 1px dashed var(--color-border); padding: 1rem 0; margin: 1rem 0;">
+              <div style="display: flex; gap: 0.5rem;">
+                <input type="text" id="coupon-code-input" class="form-input" placeholder="Promo / Coupon Code" style="flex-grow: 1; padding: 0.5rem; font-size: 0.8rem; background: var(--color-bg-input); border: 1px solid var(--color-border); border-radius: 4px; color: var(--color-text-main); text-transform: uppercase;" ${state.appliedCoupon ? 'disabled' : ''} value="${state.appliedCoupon ? state.appliedCoupon.code : ''}">
+                ${state.appliedCoupon ? `
+                  <button class="btn btn-secondary" onclick="removeCoupon(event)" style="padding: 0.5rem 1.2rem; font-size: 0.8rem; border-radius: 4px; white-space: nowrap;">Remove</button>
+                ` : `
+                  <button class="btn btn-primary" onclick="applyCoupon(event)" style="padding: 0.5rem 1.2rem; font-size: 0.8rem; border-radius: 4px; white-space: nowrap;">Apply</button>
+                `}
+              </div>
+              <div id="coupon-message" style="margin-top: 0.4rem; font-size: 0.75rem; color: var(--color-accent-gold); font-weight: 500;"></div>
+            </div>
+
             <div class="summary-total">
               <span>Total Charge</span>
               <span>₹${grandTotal.toFixed(2)}</span>
@@ -1268,6 +1306,19 @@ function getAdminTemplate() {
     </tr>
   `).join('');
 
+  const couponsRows = (state.coupons || []).map(c => `
+    <tr>
+      <td style="font-weight:600; color:var(--color-accent-gold); text-transform:uppercase;">${c.code}</td>
+      <td>${c.discount_type === 'percent' ? 'Percentage (%)' : 'Flat (₹)'}</td>
+      <td style="text-align:right; font-weight:600;">${c.discount_type === 'percent' ? `${c.value}%` : `₹${c.value.toFixed(2)}`}</td>
+      <td style="text-align:center;">
+        <button class="btn btn-secondary" style="font-size:0.7rem; padding:0.4rem 0.8rem; margin:0; border-color:var(--color-danger); color:var(--color-danger); background:transparent;" onclick="handleAdminDeleteCoupon('${c.code}')">
+          <i class="fas fa-trash-alt"></i> Delete
+        </button>
+      </td>
+    </tr>
+  `).join('') || `<tr><td colspan="4" style="text-align:center; color:var(--color-text-muted);">No coupon codes registered.</td></tr>`;
+
   const inventoryItemsHtml = PRODUCT_CATALOG.map(p => {
     const sizeStockInputsHtml = p.sizes.map(size => {
       const stock = p.sizes_stock?.[size] ?? 0;
@@ -1337,7 +1388,7 @@ function getAdminTemplate() {
         <button class="btn btn-secondary" onclick="handleLogout()">Exit Portal</button>
       </div>
       
-      <div class="admin-stats-ribbon" style="grid-template-columns: repeat(2, 1fr); margin-bottom:1.5rem;">
+      <div class="admin-stats-ribbon" style="margin-bottom:1.5rem;">
         <div class="stat-card" style="position: relative;">
           <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 0.5rem;">
             <span class="stat-card-title">${revenueTitle}</span>
@@ -1372,6 +1423,7 @@ function getAdminTemplate() {
         <div class="admin-tab ${state.adminActiveTab === 'customers' ? 'active' : ''}" onclick="switchAdminTab('customers')">Customer Directory</div>
         <div class="admin-tab ${state.adminActiveTab === 'payment' ? 'active' : ''}" onclick="switchAdminTab('payment')">Payment Settings</div>
         <div class="admin-tab ${state.adminActiveTab === 'predictions' ? 'active' : ''}" onclick="switchAdminTab('predictions')"><i class="fas fa-brain" style="font-size:0.75rem; margin-right:0.3rem; color: var(--color-accent-gold);"></i> AI Predictions</div>
+        <div class="admin-tab ${state.adminActiveTab === 'coupons' ? 'active' : ''}" onclick="switchAdminTab('coupons')"><i class="fas fa-ticket-alt" style="font-size:0.75rem; margin-right:0.3rem; color: var(--color-accent-gold);"></i> Coupons</div>
       </div>
       
       <div id="admin-pane-stats" style="display: ${state.adminActiveTab === 'stats' ? 'block' : 'none'};">
@@ -1641,7 +1693,7 @@ function getAdminTemplate() {
           }).join('');
 
           return `
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-bottom: 3rem; align-items: stretch;">
+            <div class="grid-two-col" style="margin-bottom: 3rem; align-items: stretch;">
               <!-- Left: Financial Projection -->
               <div class="glass-panel" style="padding: 2.5rem; background-color: var(--color-bg-card); display: flex; flex-direction: column; justify-content: center;">
                 <h4 style="margin:0 0 1.5rem 0; font-size:0.8rem; text-transform:uppercase; letter-spacing:0.1em; color:var(--color-text-muted); font-weight:600;">30-Day Revenue Forecasting</h4>
@@ -1688,6 +1740,56 @@ function getAdminTemplate() {
             </div>
           `;
         })()}
+      </div>
+
+      <!-- Coupons Management Pane -->
+      <div id="admin-pane-coupons" style="display: ${state.adminActiveTab === 'coupons' ? 'block' : 'none'};">
+        <h3 style="font-size: 1.25rem; margin-bottom: 2rem; letter-spacing:0.05em;">Coupon Code Management</h3>
+        <p style="color: var(--color-text-muted); font-size: 0.85rem; margin-bottom: 2.5rem; line-height: 1.6;">
+          Create and delete coupon codes that customers can use during checkout. Note that coupon codes are case-insensitive.
+        </p>
+
+        <div class="grid-two-col-uneven" style="align-items: start;">
+          <!-- Left: List of coupons -->
+          <div class="admin-table-wrapper">
+            <table class="admin-table">
+              <thead>
+                <tr>
+                  <th>Promo Code</th>
+                  <th>Discount Type</th>
+                  <th style="text-align: right;">Value</th>
+                  <th style="text-align: center;">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${couponsRows}
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Right: Add Coupon Form -->
+          <div class="glass-panel" style="padding: 2rem; background-color: var(--color-bg-card);">
+            <h4 style="font-size: 0.9rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-accent-gold); margin-bottom: 1.5rem; border-bottom: 1px dashed var(--color-border); padding-bottom: 0.5rem;">Create Promo Coupon</h4>
+            <form onsubmit="handleAdminAddCoupon(event)">
+              <div class="form-group" style="margin-bottom: 1.2rem;">
+                <label>Promo Code (e.g. WELCOME25)</label>
+                <input type="text" class="form-input" id="admin-coupon-code" required placeholder="WELCOME25" style="text-transform: uppercase;">
+              </div>
+              <div class="form-group" style="margin-bottom: 1.2rem;">
+                <label>Discount Type</label>
+                <select class="form-input" id="admin-coupon-type" required style="background: var(--color-bg-input); color: var(--color-text-main);">
+                  <option value="percent" style="background: var(--color-bg-card);">Percentage (%)</option>
+                  <option value="flat" style="background: var(--color-bg-card);">Flat Discount (₹)</option>
+                </select>
+              </div>
+              <div class="form-group" style="margin-bottom: 1.5rem;">
+                <label>Discount Value</label>
+                <input type="number" step="0.01" class="form-input" id="admin-coupon-value" required placeholder="25.00">
+              </div>
+              <button type="submit" class="btn btn-primary" style="width: 100%; padding: 0.8rem;">Create Coupon</button>
+            </form>
+          </div>
+        </div>
       </div>
     </div>
   `;
@@ -1762,10 +1864,76 @@ function updateWishlistBadge() {
   }
 }
 
+// --- Style Recommendation Matching Logic ---
+function getLookRecommendations(prod) {
+  let targetCategories = [];
+  if (prod.category === 'shirts' || prod.category === 'tshirts') {
+    targetCategories = ['pants'];
+  } else if (prod.category === 'pants') {
+    targetCategories = ['shirts', 'tshirts'];
+  }
+  
+  // Filter active catalog candidates (not the current product, belongs to target categories, visible and in stock)
+  const candidates = PRODUCT_CATALOG.filter(p => 
+    p.id !== prod.id && 
+    targetCategories.includes(p.category) && 
+    p.isVisible && 
+    (Object.values(p.sizes_stock || {}).reduce((sum, s) => sum + s, 0) > 0)
+  );
+  
+  const getStyleScore = (candidate) => {
+    let score = 0;
+    
+    // Rule A: Fabric Continuity Matching
+    const fabricKeywords = ['linen', 'silk', 'cotton', 'wool', 'pima'];
+    fabricKeywords.forEach(keyword => {
+      const hasMain = prod.description.toLowerCase().includes(keyword) || prod.title.toLowerCase().includes(keyword);
+      const hasCand = candidate.description.toLowerCase().includes(keyword) || candidate.title.toLowerCase().includes(keyword);
+      if (hasMain && hasCand) score += 5;
+    });
+    
+    // Rule B: Color Contrast Harmony
+    const mainIsDark = (prod.colors?.[0]?.name?.toLowerCase() || '').match(/(black|dark|navy|charcoal|ink|indigo)/i) || 
+                       prod.description.toLowerCase().match(/(black|dark|navy|charcoal|ink|indigo)/i);
+                       
+    const candIsLight = (candidate.colors?.[0]?.name?.toLowerCase() || '').match(/(white|light|khaki|cream|beige|off-white|grey|gray)/i) || 
+                        candidate.description.toLowerCase().match(/(white|light|khaki|cream|beige|off-white|grey|gray)/i);
+                        
+    const mainIsLight = (prod.colors?.[0]?.name?.toLowerCase() || '').match(/(white|light|khaki|cream|beige|off-white|grey|gray)/i) || 
+                        prod.description.toLowerCase().match(/(white|light|khaki|cream|beige|off-white|grey|gray)/i);
+                        
+    const candIsDark = (candidate.colors?.[0]?.name?.toLowerCase() || '').match(/(black|dark|navy|charcoal|ink|indigo)/i) || 
+                       candidate.description.toLowerCase().match(/(black|dark|navy|charcoal|ink|indigo)/i);
+    
+    if (mainIsDark && candIsLight) score += 4;
+    if (mainIsLight && candIsDark) score += 4;
+    
+    // Rule C: Formality Alignment
+    const isFormalMain = prod.description.toLowerCase().match(/(formal|office|dress|pleated|suit|giza)/i) || prod.title.toLowerCase().match(/(formal|office|dress|pleated|suit|giza)/i);
+    const isFormalCand = candidate.description.toLowerCase().match(/(formal|office|dress|pleated|suit|giza)/i) || candidate.title.toLowerCase().match(/(formal|office|dress|pleated|suit|giza)/i);
+    if (isFormalMain && isFormalCand) score += 3;
+    if (!isFormalMain && !isFormalCand) score += 2;
+    
+    return score;
+  };
+  
+  // Sort candidates by score descending and return top 3
+  return candidates.sort((a, b) => getStyleScore(b) - getStyleScore(a)).slice(0, 3);
+}
+
 // --- Product Modal (PDP) Actions ---
+let isBackNav = false;
 window.openPDP = async function(productId) {
   const product = PRODUCT_CATALOG.find(p => p.id === productId);
   if (!product) return;
+  
+  // Track visual history stack for breadcrumb back navigation
+  if (state.selectedProduct && state.selectedProduct.id !== productId && !isBackNav) {
+    if (state.pdpHistory.length === 0 || state.pdpHistory[state.pdpHistory.length - 1] !== state.selectedProduct.id) {
+      state.pdpHistory.push(state.selectedProduct.id);
+    }
+  }
+  isBackNav = false; // Reset back navigation flag
   
   // Enforce sold out status if all sizes are out of stock
   const totalStock = Object.values(product.sizes_stock || {}).reduce((sum, s) => sum + s, 0);
@@ -1806,9 +1974,37 @@ window.openPDP = async function(productId) {
     </div>
   `).join('');
 
+  const recommendations = getLookRecommendations(product);
+  let recsHtml = '';
+  if (recommendations.length > 0) {
+    const recCardsHtml = recommendations.map(r => `
+      <div class="rec-card" onclick="openPDP('${r.id}')" style="display: flex; align-items: center; gap: 1rem; padding: 0.8rem; background: var(--color-bg-card); border: 1px solid var(--color-border); border-radius: 4px; cursor: pointer; margin-bottom: 0.8rem; transition: transform 0.2s ease-in-out, border-color 0.2s;">
+        <img src="${r.image}" alt="${r.title}" style="width: 50px; height: 50px; object-fit: cover; border-radius: 3px;">
+        <div style="flex-grow: 1;">
+          <div style="font-size: 0.7rem; text-transform: uppercase; color: var(--color-accent-gold); font-weight: 600;">${r.categoryLabel}</div>
+          <h5 style="margin: 0.1rem 0; font-size: 0.85rem; color: var(--color-text-main); font-weight: 500;">${r.title}</h5>
+          <div style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-light);">₹${r.price.toFixed(2)}</div>
+        </div>
+        <i class="fas fa-chevron-right" style="color: var(--color-text-muted); font-size: 0.8rem;"></i>
+      </div>
+    `).join('');
+    
+    recsHtml = `
+      <div style="border-top: 1px dashed var(--color-border); padding-top: 2rem; margin-top: 2.5rem;">
+        <h4 style="font-size: 0.95rem; font-family: var(--font-display); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 1.2rem; font-weight: 600; color: var(--color-text-main);">
+          <i class="fas fa-tshirt" style="margin-right: 0.4rem; color: var(--color-accent-gold);"></i> Complete the Look
+        </h4>
+        <div class="rec-list">
+          ${recCardsHtml}
+        </div>
+      </div>
+    `;
+  }
+
   pdpContentContainer.innerHTML = `
     <div class="pdp-gallery">
       <img src="${product.image}" alt="${product.title}" class="pdp-main-img">
+      ${recsHtml}
     </div>
     
     <div class="pdp-details">
@@ -1936,14 +2132,44 @@ window.openPDP = async function(productId) {
     </div>
   `;
 
+  const backBtnContainer = document.getElementById("pdp-back-btn-container");
+  if (backBtnContainer) {
+    if (state.pdpHistory.length > 0) {
+      const prevId = state.pdpHistory[state.pdpHistory.length - 1];
+      const prevProduct = PRODUCT_CATALOG.find(p => p.id === prevId);
+      if (prevProduct) {
+        backBtnContainer.innerHTML = `
+          <button onclick="navigateBackPDP()" style="position: absolute; top: 1.5rem; left: 1.5rem; display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.6rem 1.2rem; font-size: 0.72rem; font-weight: 600; font-family: var(--font-display); text-transform: uppercase; letter-spacing: 0.05em; background: rgba(255,255,255,0.03); border: 1px solid var(--color-border); border-radius: 4px; color: var(--color-accent-gold); cursor: pointer; transition: all 0.2s; z-index: 10;" class="pdp-back-btn">
+            <i class="fas fa-arrow-left"></i> Back to ${prevProduct.title}
+          </button>
+        `;
+      } else {
+        backBtnContainer.innerHTML = '';
+      }
+    } else {
+      backBtnContainer.innerHTML = '';
+    }
+  }
+
   pdpModal.classList.add("active");
+  pdpModal.scrollTo({ top: 0 }); // Scroll modal container back to top
   document.body.style.overflow = "hidden";
 };
 
 window.closePDPModal = function() {
   pdpModal.classList.remove("active");
   state.selectedProduct = null;
+  state.pdpHistory = []; // Clear history stack when modal is closed
+  const backBtnContainer = document.getElementById("pdp-back-btn-container");
+  if (backBtnContainer) backBtnContainer.innerHTML = '';
   document.body.style.overflow = "";
+};
+
+window.navigateBackPDP = function() {
+  if (state.pdpHistory.length === 0) return;
+  const prevId = state.pdpHistory.pop();
+  isBackNav = true; // Avoid pushing history during back navigation
+  openPDP(prevId);
 };
 
 window.selectPDPColor = function(element) {
@@ -2516,8 +2742,18 @@ window.handlePlaceOrder = async function(event) {
   const finalAddress = zipVal ? `${addressVal} (PIN: ${zipVal})` : addressVal;
   
   const subtotal = state.cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
-  const vat = subtotal * 0.05;
-  const grandTotal = subtotal + vat + 15.00;
+  
+  let discount = 0;
+  if (state.appliedCoupon) {
+    if (state.appliedCoupon.discountType === 'percent') {
+      discount = subtotal * (state.appliedCoupon.value / 100);
+    } else {
+      discount = Math.min(state.appliedCoupon.value, subtotal);
+    }
+  }
+
+  const vat = Math.max(0, subtotal - discount) * 0.05;
+  const grandTotal = Math.max(0, subtotal - discount + vat + 15.00);
   
   try {
     showToast("Initializing Razorpay checkout portal...");
@@ -2599,6 +2835,7 @@ window.handlePlaceOrder = async function(event) {
 function showOrderReceipt(orderId, orderPayload, method, paymentId) {
   // Clear cart locally
   state.cart = [];
+  state.appliedCoupon = null; // Clear active coupon on order success
   localStorage.setItem('HAIRAH_cart', JSON.stringify([]));
   updateCartBadge();
   
@@ -3243,11 +3480,11 @@ window.viewAdminOrderDetails = function(orderId) {
           <span style="font-family: var(--font-display);">₹${(o.total - (o.total * 0.05) - 15.00).toFixed(2)}</span>
         </div>
         <div style="display:flex; justify-content:space-between; width: 220px; color:var(--color-text-muted);">
-          <span>Tax / VAT (5%):</span>
+          <span>GST (5%):</span>
           <span style="font-family: var(--font-display);">₹${((o.total - 15.00) * 0.05).toFixed(2)}</span>
         </div>
         <div style="display:flex; justify-content:space-between; width: 220px; color:var(--color-text-muted);">
-          <span>Shipping (Express):</span>
+          <span>Delivery Charge:</span>
           <span style="font-family: var(--font-display);">₹15.00</span>
         </div>
         <div style="display:flex; justify-content:space-between; width: 220px; font-weight:600; font-size:1rem; border-top:1px solid var(--color-border); padding-top:0.5rem; margin-top:0.2rem; color:var(--color-accent-gold);">
@@ -3375,7 +3612,7 @@ window.printAdminOrderSlip = function(orderId) {
         <div class="header">
           <div>
             <div class="title">HAIRAH MEN'S WORLD</div>
-            <div style="font-size: 12px; color: #888; margin-top: 5px;">Bespoke Sartorial Attire</div>
+            <div style="font-size: 12px; color: #888; margin-top: 5px;">Premium Ready-made Attire</div>
           </div>
           <div class="meta-info">
             <strong>ORDER ID:</strong> ${o.id}<br>
@@ -3434,4 +3671,80 @@ window.printAdminOrderSlip = function(orderId) {
     </html>
   `);
   printWindow.document.close();
+};
+
+window.applyCoupon = async function(event) {
+  event.preventDefault();
+  const input = document.getElementById("coupon-code-input");
+  const msgDiv = document.getElementById("coupon-message");
+  if (!input) return;
+  const code = input.value.trim().toUpperCase();
+  if (!code) {
+    showToast("Please enter a coupon code");
+    return;
+  }
+  
+  try {
+    const res = await apiCall('/api/coupons/validate', 'POST', { code });
+    if (res.valid) {
+      state.appliedCoupon = {
+        code,
+        discountType: res.discountType,
+        value: res.value
+      };
+      showToast(`Promo code ${code} applied successfully!`);
+      navigate('checkout'); // re-render checkout
+    } else {
+      if (msgDiv) msgDiv.textContent = res.error || "Invalid coupon code";
+      showToast(res.error || "Invalid coupon code", "danger");
+    }
+  } catch (err) {
+    if (msgDiv) msgDiv.textContent = "Error validating coupon";
+    showToast("Failed to validate coupon", "danger");
+  }
+};
+
+window.removeCoupon = function(event) {
+  event.preventDefault();
+  state.appliedCoupon = null;
+  showToast("Promo coupon removed.");
+  navigate('checkout'); // re-render checkout
+};
+
+window.handleAdminAddCoupon = async function(event) {
+  event.preventDefault();
+  const codeInput = document.getElementById("admin-coupon-code");
+  const typeSelect = document.getElementById("admin-coupon-type");
+  const valueInput = document.getElementById("admin-coupon-value");
+  if (!codeInput || !typeSelect || !valueInput) return;
+
+  const code = codeInput.value.trim().toUpperCase();
+  const discountType = typeSelect.value;
+  const value = parseFloat(valueInput.value);
+
+  if (!code || isNaN(value) || value <= 0) {
+    showToast("Invalid coupon inputs.", "danger");
+    return;
+  }
+
+  try {
+    const res = await apiCall('/api/admin/coupons', 'POST', { code, discountType, value });
+    showToast(res.message || "Coupon added successfully!");
+    await syncSessionAndDatabase(); // Reload state.coupons
+    renderCurrentView(); // Re-render admin dashboard to update list
+  } catch (err) {
+    showToast("Failed to create coupon: " + (err.error || err.message), "danger");
+  }
+};
+
+window.handleAdminDeleteCoupon = async function(code) {
+  if (!confirm(`Are you sure you want to delete coupon ${code}?`)) return;
+  try {
+    const res = await apiCall('/api/admin/coupons/delete', 'POST', { code });
+    showToast(res.message || "Coupon deleted successfully!");
+    await syncSessionAndDatabase(); // Reload state.coupons
+    renderCurrentView(); // Re-render admin dashboard to update list
+  } catch (err) {
+    showToast("Failed to delete coupon: " + (err.error || err.message), "danger");
+  }
 };

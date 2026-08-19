@@ -138,8 +138,18 @@ def init_db():
             razorpay_key_id TEXT,
             razorpay_key_secret TEXT,
             stripe_publishable_key TEXT,
-            stripe_secret_key TEXT,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            stripe_secret_key TEXT
+        )
+    ''')
+    conn.commit()
+
+    # 8. Coupons Table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS coupons (
+            code TEXT PRIMARY KEY,
+            discount_type TEXT NOT NULL, -- 'percent' or 'flat'
+            value REAL NOT NULL,
+            is_active INTEGER DEFAULT 1
         )
     ''')
     conn.commit()
@@ -238,7 +248,7 @@ def init_db():
         cursor.execute('''
             INSERT INTO users (email, password_hash, name, role)
             VALUES (?, ?, ?, ?)
-        ''', ('admin@hairah.com', hash_password('admin123'), 'Sartorial Director', 'admin'))
+        ''', ('admin@hairah.com', hash_password('admin123'), 'Store Director', 'admin'))
         
         # Customer Account
         cursor.execute('''
@@ -248,7 +258,10 @@ def init_db():
         
         conn.commit()
 
-    # Pre-populate products if empty
+    # Pre-populate products if empty (re-seed to reflect ready-made brand updates)
+    cursor.execute("DELETE FROM products WHERE id IN ('shirt-01', 'shirt-02', 'pants-01', 'pants-02', 'tshirt-01', 'tshirt-02')")
+    conn.commit()
+    
     cursor.execute('SELECT COUNT(*) FROM products')
     if cursor.fetchone()[0] == 0:
         catalog = [
@@ -259,18 +272,18 @@ def init_db():
                 "category_label": "Shirts",
                 "price": 220.00,
                 "image": "assets/shirt_white.jpg",
-                "description": "An elegant dress shirt crafted from two-ply Egyptian cotton, featuring a structured spread collar, double-button French cuffs, and a tailored slim fit. A true wardrobe staple for formal settings.",
-                "features": ["120s double-ply cotton", "French cuffs for cufflinks", "Removable collar stays", "Bespoke inner collar piping"],
+                "description": "An elegant dress shirt crafted from two-ply Egyptian cotton, featuring a structured spread collar, double-button French cuffs, and a premium slim fit. A true wardrobe staple for formal settings.",
+                "features": ["120s double-ply cotton", "French cuffs for cufflinks", "Removable collar stays", "Signature inner collar piping"],
                 "sizes": ["S", "M", "L", "XL"],
                 "colors": [
-                    {"name": "Sartorial White", "hex": "#FFFFFF"},
+                    {"name": "Classic White", "hex": "#FFFFFF"},
                     {"name": "Powder Blue", "hex": "#E6F0FA"}
                 ],
                 "in_stock": 1
             },
             {
                 "id": "shirt-02",
-                "title": "Sartorial Casual Linen Shirt",
+                "title": "Premium Casual Linen Shirt",
                 "category": "shirts",
                 "category_label": "Shirts",
                 "price": 185.00,
@@ -280,18 +293,18 @@ def init_db():
                 "sizes": ["S", "M", "L", "XL"],
                 "colors": [
                     {"name": "Powder Blue", "hex": "#E6F0FA"},
-                    {"name": "Sartorial White", "hex": "#FFFFFF"}
+                    {"name": "Classic White", "hex": "#FFFFFF"}
                 ],
                 "in_stock": 1
             },
             {
                 "id": "pants-01",
-                "title": "Pleated Tailored Cotton Chinos",
+                "title": "Pleated Premium Cotton Chinos",
                 "category": "pants",
                 "category_label": "Pants",
                 "price": 290.00,
                 "image": "assets/pants_chinos.jpg",
-                "description": "Tailored from medium-weight Italian cotton-gabardine, these double-pleated pants offer a refined drape, side adjusters, and a slightly tapered silhouette. Melds casual comfort with formal posture.",
+                "description": "Crafted from medium-weight Italian cotton-gabardine, these double-pleated pants offer a refined drape, side adjusters, and a slightly tapered silhouette. Melds casual comfort with formal posture.",
                 "features": ["98% long-staple cotton, 2% elastane", "Classic double pleats", "Side metal buckle adjusters", "Split-back comfort waistband"],
                 "sizes": ["S", "M", "L", "XL"],
                 "colors": [
@@ -307,7 +320,7 @@ def init_db():
                 "category_label": "Pants",
                 "price": 350.00,
                 "image": "assets/pants_chinos.jpg",
-                "description": "Formal suit trousers made from fine tropical wool. Designed for year-round versatility, featuring a flat-front styling, off-seam pockets, and an unhemmed finish for bespoke tailoring.",
+                "description": "Formal suit trousers made from fine tropical wool. Designed for year-round versatility, featuring a flat-front styling, off-seam pockets, and a pre-hemmed finish for immediate ready-made wear.",
                 "features": ["Super 120s virgin wool", "Flat front modern drape", "After-dinner split waistband", "Premium satin lining to knee"],
                 "sizes": ["S", "M", "L", "XL"],
                 "colors": [
@@ -323,13 +336,13 @@ def init_db():
                 "category_label": "T-Shirts",
                 "price": 110.00,
                 "image": "https://images.unsplash.com/photo-1521572267360-ee0c2909d518?auto=format&fit=crop&q=80&w=600",
-                "description": "A premium crewneck T-shirt knitted from silk-infused Pima cotton, offering exceptional softness, shape retention, and a subtle luster. Cut in an athletic tailored fit.",
+                "description": "A premium crewneck T-shirt knitted from silk-infused Pima cotton, offering exceptional softness, shape retention, and a subtle luster. Cut in an athletic ready-made fit.",
                 "features": ["95% Pima cotton, 5% silk", "Reinforced rib neckband", "Interlock stitch hemline", "Pre-shrunk fibers"],
                 "sizes": ["S", "M", "L", "XL"],
                 "colors": [
                     {"name": "Ink Black", "hex": "#121212"},
                     {"name": "Off-White", "hex": "#FAF8F5"},
-                    {"name": "Sartorial Navy", "hex": "#1F2937"}
+                    {"name": "Classic Navy", "hex": "#1F2937"}
                 ],
                 "in_stock": 1
             },
@@ -376,7 +389,20 @@ def init_db():
         cursor.execute('''
             INSERT INTO order_items (order_id, product_id, title, qty, price, size, color)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (order_id, 'shirt-01', 'Premium White Dress Shirt', 1, 220.00, '16.0', 'Sartorial White'))
+        ''', (order_id, 'shirt-01', 'Premium White Dress Shirt', 1, 220.00, '16.0', 'Classic White'))
+        conn.commit()
+
+    # Seed default coupons if empty
+    cursor.execute('SELECT COUNT(*) FROM coupons')
+    if cursor.fetchone()[0] == 0:
+        default_coupons = [
+            ("WELCOME10", "percent", 10.0),
+            ("HAIRAH20", "percent", 20.0),
+            ("SARTORIAL50", "flat", 50.0),
+            ("FESTIVE15", "percent", 15.0)
+        ]
+        for c in default_coupons:
+            cursor.execute('INSERT INTO coupons (code, discount_type, value, is_active) VALUES (?, ?, ?, 1)', c)
         conn.commit()
 
     conn.close()
@@ -802,3 +828,48 @@ def get_ai_predictions():
         'revenueForecast': round(predicted_next_month_revenue, 2),
         'totalRevenue': round(total_rev, 2)
     }
+
+def validate_coupon(code):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT discount_type, value, is_active FROM coupons WHERE UPPER(code) = ?', (code.strip().upper(),))
+    row = cursor.fetchone()
+    conn.close()
+    if row and row['is_active'] == 1:
+        return {
+            "valid": True,
+            "discountType": row['discount_type'],
+            "value": row['value']
+        }
+    return {"valid": False, "error": "Invalid or inactive coupon code"}
+
+def get_all_coupons():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM coupons')
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def add_coupon(code, discount_type, value):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute('INSERT INTO coupons (code, discount_type, value, is_active) VALUES (?, ?, ?, 1)', 
+                       (code.strip().upper(), discount_type, float(value)))
+        conn.commit()
+        success = True
+        err = None
+    except Exception as e:
+        success = False
+        err = str(e)
+    conn.close()
+    return success, err
+
+def delete_coupon(code):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM coupons WHERE UPPER(code) = ?', (code.strip().upper(),))
+    conn.commit()
+    conn.close()
+    return True
