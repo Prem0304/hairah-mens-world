@@ -26,7 +26,15 @@ let state = {
   profileActiveTab: "orders",
   adminActiveTab: "stats",
   merchantConfig: null,
-  aiPredictions: null
+  aiPredictions: null,
+  posCart: [],
+  posSearchQuery: "",
+  posCustomer: { name: "", phone: "", email: "" },
+  posAppliedCoupon: null,
+  posPaymentMethod: "Cash",
+  posIncludeGST: true,
+  posFullscreen: false,
+  adminOrderSearchQuery: ""
 };
 
 // --- DOM References ---
@@ -108,6 +116,16 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   });
 
+  // Mobile Bottom Tab Bar Navigation Binding
+  document.querySelectorAll(".mobile-bottom-nav .mobile-nav-item[data-page]").forEach(link => {
+    link.addEventListener("click", (e) => {
+      e.preventDefault();
+      const page = link.getAttribute("data-page");
+      state.activeFilter = "all"; // Reset filters on navigation
+      navigate(page);
+    });
+  });
+
   // Footer Navigation Link Binding
   document.querySelectorAll("footer .page-link").forEach(link => {
     link.addEventListener("click", (e) => {
@@ -126,6 +144,22 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("cart-toggle-btn").addEventListener("click", openCartDrawer);
   document.getElementById("cart-close-btn").addEventListener("click", closeCartDrawer);
   cartDrawerBackdrop.addEventListener("click", closeCartDrawer);
+  
+  // Handle Esc key exit from native browser fullscreen
+  document.addEventListener("fullscreenchange", () => {
+    if (!document.fullscreenElement && state.posFullscreen) {
+      state.posFullscreen = false;
+      document.body.classList.remove("pos-fullscreen-mode-active");
+      renderCurrentView();
+    }
+  });
+  document.addEventListener("webkitfullscreenchange", () => {
+    if (!document.webkitFullscreenElement && state.posFullscreen) {
+      state.posFullscreen = false;
+      document.body.classList.remove("pos-fullscreen-mode-active");
+      renderCurrentView();
+    }
+  });
   
   // PDP Close Modal
   document.getElementById("pdp-close-btn").addEventListener("click", closePDPModal);
@@ -167,43 +201,45 @@ document.addEventListener("DOMContentLoaded", async () => {
 // --- Sync Session Data on Load/Change ---
 async function syncSessionAndDatabase() {
   try {
-    // A. Load catalog products
-    PRODUCT_CATALOG = await apiCall('/api/products');
+    // A. Fetch catalog, merchant config, and auth status in parallel
+    const [catalog, merchantConfig, authData] = await Promise.all([
+      apiCall('/api/products'),
+      apiCall('/api/payments/merchant-config'),
+      apiCall('/api/auth/me')
+    ]);
     
-    // Load merchant payment config (needed for checkout routing)
-    state.merchantConfig = await apiCall('/api/payments/merchant-config');
-    
-    // B. Check auth state
-    const authData = await apiCall('/api/auth/me');
+    PRODUCT_CATALOG = catalog;
+    state.merchantConfig = merchantConfig;
     state.currentUser = authData.user;
     
     if (state.currentUser) {
-      // C. If customer, load personal wishlist & orders
       if (state.currentUser.role === 'customer') {
-        state.wishlist = await apiCall('/api/wishlist');
-        const ordersData = await apiCall('/api/orders');
+        // Fetch customer specific details in parallel
+        const [wishlist, ordersData] = await Promise.all([
+          apiCall('/api/wishlist'),
+          apiCall('/api/orders')
+        ]);
+        state.wishlist = wishlist;
         state.orders = ordersData.orders;
       }
-      // D. If admin, load full orders database & accounts
       else if (state.currentUser.role === 'admin') {
-        const adminData = await apiCall('/api/orders');
+        // Fetch admin specific dashboard data in parallel
+        const [adminData, aiPredictions, coupons] = await Promise.all([
+          apiCall('/api/orders'),
+          apiCall('/api/admin/ai-predictions').catch(() => null),
+          apiCall('/api/admin/coupons').catch(() => [])
+        ]);
         state.orders = adminData.orders;
         state.users = adminData.users;
-        try {
-          state.aiPredictions = await apiCall('/api/admin/ai-predictions');
-        } catch (e) {
-          state.aiPredictions = null;
-        }
-        try {
-          state.coupons = await apiCall('/api/admin/coupons');
-        } catch (e) {
-          state.coupons = [];
-        }
+        state.aiPredictions = aiPredictions;
+        state.coupons = coupons;
       }
     } else {
       state.wishlist = [];
       state.orders = [];
       state.users = [];
+      state.aiPredictions = null;
+      state.coupons = [];
     }
     
     updateWishlistBadge();
@@ -297,6 +333,11 @@ window.navigate = function(view) {
   closePDPModal();
   if (window.closeMockRzpModal) window.closeMockRzpModal();
   if (window.closeAdminOrderDetailModal) window.closeAdminOrderDetailModal();
+  state.posFullscreen = false;
+  document.body.classList.remove("pos-fullscreen-mode-active");
+  if (document.fullscreenElement) {
+    document.exitFullscreen().catch(err => console.log("Exit fullscreen:", err));
+  }
   document.body.style.overflow = ""; // Hard reset scroll lock
   
   // Update nav menu active styles
@@ -309,6 +350,16 @@ window.navigate = function(view) {
       } else {
         li.classList.remove("active");
       }
+    }
+  });
+
+  // Update mobile bottom nav active styles
+  document.querySelectorAll(".mobile-bottom-nav .mobile-nav-item").forEach(item => {
+    const page = item.getAttribute("data-page");
+    if (page === view || (view === "admin" && page === "profile") || (view === "profile" && page === "profile")) {
+      item.classList.add("active");
+    } else {
+      item.classList.remove("active");
     }
   });
   
@@ -350,7 +401,17 @@ async function renderCurrentView() {
     if (!state.currentUser || state.currentUser.role !== 'admin') {
       setTimeout(() => navigate("home"), 0);
     } else {
-      appContainer.innerHTML = getAdminTemplate();
+      if (state.posFullscreen && state.adminActiveTab === 'pos') {
+        appContainer.innerHTML = `
+          <div class="pos-fullscreen-terminal-overlay">
+            <div style="max-width: 1400px; margin: 0 auto; padding: 2rem;">
+              ${getPOSTemplate()}
+            </div>
+          </div>
+        `;
+      } else {
+        appContainer.innerHTML = getAdminTemplate();
+      }
     }
   }
 }
@@ -382,7 +443,7 @@ function getHomeTemplate() {
 
     <div class="collections-grid">
       <div class="collection-card" onclick="filterAndShop('shirts')">
-        <img src="assets/shirt_white.jpg" alt="Shirts" class="collection-img">
+        <img src="assets/shirt_white.jpg" alt="HAIRAH Luxury Ready-made Mens Shirts Collection" class="collection-img">
         <div class="collection-overlay">
           <h3>Shirts</h3>
           <p>Two-ply cotton, structured collars, and elegant French cuffs.</p>
@@ -390,7 +451,7 @@ function getHomeTemplate() {
       </div>
 
       <div class="collection-card" onclick="filterAndShop('pants')">
-        <img src="assets/pants_chinos.jpg" alt="Pants" class="collection-img">
+        <img src="assets/pants_chinos.jpg" alt="HAIRAH Ready-made Trousers and Chinos Collection" class="collection-img">
         <div class="collection-overlay">
           <h3>Pants</h3>
           <p>Double-pleated chinos and fine tropical wool trousers for perfect drape.</p>
@@ -398,7 +459,7 @@ function getHomeTemplate() {
       </div>
 
       <div class="collection-card" onclick="filterAndShop('tshirts')">
-        <img src="https://images.unsplash.com/photo-1521572267360-ee0c2909d518?auto=format&fit=crop&q=80&w=600" alt="T-Shirts" class="collection-img">
+        <img src="https://images.unsplash.com/photo-1521572267360-ee0c2909d518?auto=format&fit=crop&q=80&w=600" alt="HAIRAH Pima Cotton T-Shirts Collection" class="collection-img">
         <div class="collection-overlay">
           <h3>T-Shirts</h3>
           <p>Mulberry silk and long-staple Pima cotton knits with natural luster.</p>
@@ -484,6 +545,20 @@ function getShopTemplate() {
 
   return `
     <div class="catalog-layout">
+      <!-- Luxury Hero Banner for Shop -->
+      <div class="page-hero-banner">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1.5rem;">
+          <div>
+            <div style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.25em; color:var(--color-accent-gold); font-weight:600; margin-bottom:0.5rem;">HAIRAH Ready-to-Wear Catalog</div>
+            <h2 style="font-size:2.2rem; font-weight:300; margin:0;">Luxury Menswear Collection</h2>
+            <p style="color:var(--color-text-muted); font-size:0.9rem; margin-top:0.4rem; max-width:600px;">Structured French cuff shirts, double-pleated wool trousers, and Mulberry silk & long-staple Pima cotton knits.</p>
+          </div>
+          <div class="badge" style="background:rgba(212,175,55,0.1); border:1px solid rgba(212,175,55,0.3); color:var(--color-accent-gold); padding:0.6rem 1.2rem; font-size:0.8rem; font-weight:600;">
+            <i class="fas fa-gem" style="margin-right:0.4rem;"></i> ${filtered.length} Premium Selections
+          </div>
+        </div>
+      </div>
+
       <div class="filter-bar">
         <div class="filter-tabs">
           <span class="filter-tab ${state.activeFilter === 'all' ? 'active' : ''}" onclick="setFilter('all')">All Attire</span>
@@ -518,6 +593,31 @@ function getShopTemplate() {
           ${cardsHtml}
         </div>
       `}
+
+      <!-- Sartorial Trust Ribbon at bottom -->
+      <div class="feature-ribbon-grid" style="margin-top: 4.5rem; display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.5rem;">
+        <div class="glass-panel" style="padding: 1.5rem; display: flex; gap: 1rem; align-items: center;">
+          <i class="fas fa-award" style="font-size: 1.8rem; color: var(--color-accent-gold);"></i>
+          <div>
+            <h4 style="margin: 0; font-size: 0.85rem; font-weight: 600; text-transform: uppercase;">100% Ready-made Quality</h4>
+            <p style="margin: 0.2rem 0 0 0; font-size: 0.75rem; color: var(--color-text-muted);">Crafted with 2-ply cotton & fine drapes.</p>
+          </div>
+        </div>
+        <div class="glass-panel" style="padding: 1.5rem; display: flex; gap: 1rem; align-items: center;">
+          <i class="fas fa-truck-fast" style="font-size: 1.8rem; color: var(--color-accent-gold);"></i>
+          <div>
+            <h4 style="margin: 0; font-size: 0.85rem; font-weight: 600; text-transform: uppercase;">Express India Delivery</h4>
+            <p style="margin: 0.2rem 0 0 0; font-size: 0.75rem; color: var(--color-text-muted);">Insured dispatch with real-time tracking.</p>
+          </div>
+        </div>
+        <div class="glass-panel" style="padding: 1.5rem; display: flex; gap: 1rem; align-items: center;">
+          <i class="fas fa-rotate-left" style="font-size: 1.8rem; color: var(--color-accent-gold);"></i>
+          <div>
+            <h4 style="margin: 0; font-size: 0.85rem; font-weight: 600; text-transform: uppercase;">7-Day Easy Exchange</h4>
+            <p style="margin: 0.2rem 0 0 0; font-size: 0.75rem; color: var(--color-text-muted);">Seamless sizing adjustments guaranteed.</p>
+          </div>
+        </div>
+      </div>
     </div>
   `;
 }
@@ -528,11 +628,17 @@ function getWishlistTemplate() {
 
   if (savedItems.length === 0) {
     return `
-      <div class="wishlist-layout" style="text-align: center; padding: 8rem 2rem;">
-        <i class="far fa-heart" style="font-size: 4rem; margin-bottom: 2rem; color: var(--color-accent-gold);"></i>
-        <h2 style="font-size: 2rem; font-weight: 300;">Your Wishlist is Empty</h2>
-        <p style="color: var(--color-text-muted); margin-bottom: 3rem; margin-top: 0.5rem; font-size: 0.95rem;">Save your preferred cuts and items for later tailored fitting.</p>
-        <button class="btn btn-primary" onclick="navigate('shop')">Explore Shop</button>
+      <div class="wishlist-layout" style="padding: 4rem 1.5rem;">
+        <div class="glass-panel" style="max-width: 600px; margin: 0 auto; padding: 4rem 2.5rem; text-align: center; border-radius: 8px;">
+          <div style="width: 70px; height: 70px; border-radius: 50%; background: rgba(212,175,55,0.1); border: 1px solid rgba(212,175,55,0.3); display: flex; align-items: center; justify-content: center; margin: 0 auto 1.8rem auto;">
+            <i class="far fa-heart" style="font-size: 2.2rem; color: var(--color-accent-gold);"></i>
+          </div>
+          <h2 style="font-size: 2.2rem; font-weight: 300; margin: 0;">Your Saved Wardrobe is Empty</h2>
+          <p style="color: var(--color-text-muted); margin: 1rem 0 2.5rem 0; font-size: 0.95rem; line-height: 1.6;">
+            Save your favorite ready-made shirts, trousers, and Pima cotton t-shirts to build your personal sartorial collection for easy access.
+          </p>
+          <button class="btn btn-primary" onclick="navigate('shop')" style="padding: 0.9rem 2.5rem;">Explore Ready-to-Wear Catalog</button>
+        </div>
       </div>
     `;
   }
@@ -560,8 +666,21 @@ function getWishlistTemplate() {
 
   return `
     <div class="wishlist-layout">
-      <h2 style="font-size: 2.2rem; text-align: center; font-weight: 300;">Saved Selections</h2>
-      <p style="text-align: center; color: var(--color-text-muted); font-size: 0.95rem; margin-top: 0.5rem;">Your curated favorites, ready for sizing and order verification.</p>
+      <!-- Saved Selections Hero Banner -->
+      <div class="page-hero-banner">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1.5rem;">
+          <div>
+            <div style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.25em; color:var(--color-accent-gold); font-weight:600; margin-bottom:0.5rem;">Personal Wardrobe Vault</div>
+            <h2 style="font-size:2.2rem; font-weight:300; margin:0;">Saved Favorites</h2>
+            <p style="color:var(--color-text-muted); font-size:0.9rem; margin-top:0.4rem;">Curated apparel selections ready for sizing profile checks and one-click checkout.</p>
+          </div>
+          <div style="display:flex; gap:1rem; flex-wrap:wrap;">
+            <span class="badge" style="background:rgba(212,175,55,0.1); border:1px solid rgba(212,175,55,0.3); color:var(--color-accent-gold); padding:0.6rem 1.2rem; font-size:0.8rem; font-weight:600;">
+              <i class="fas fa-heart" style="margin-right:0.4rem;"></i> ${savedItems.length} Saved Selections
+            </span>
+          </div>
+        </div>
+      </div>
       
       <div class="wishlist-grid">
         ${gridHtml}
@@ -648,7 +767,27 @@ function getCheckoutTemplate() {
 
   return `
     <div class="checkout-layout">
-      <h2 style="font-size: 2.2rem; margin-bottom: 3.5rem; text-align: center; font-weight: 300;">Sartorial Checkout</h2>
+      <!-- Checkout Stepper Progress Ribbon -->
+      <div class="stepper-ribbon">
+        <div class="stepper-step active">
+          <div class="stepper-step-num"><i class="fas fa-check"></i></div>
+          <span>Wardrobe Selection</span>
+        </div>
+        <div style="color:var(--color-border); font-size:0.8rem;">—</div>
+        <div class="stepper-step active">
+          <div class="stepper-step-num">2</div>
+          <span>Delivery Details</span>
+        </div>
+        <div style="color:var(--color-border); font-size:0.8rem;">—</div>
+        <div class="stepper-step">
+          <div class="stepper-step-num">3</div>
+          <span>Encrypted Payment</span>
+        </div>
+      </div>
+
+      <div style="display:flex; align-items:center; justify-content:center; gap:0.6rem; background:rgba(40,167,69,0.08); border:1px solid rgba(40,167,69,0.25); padding:0.6rem 1.2rem; border-radius:4px; margin-bottom:2.5rem; font-size:0.78rem; color:#4cd964; font-weight:500;">
+        <i class="fas fa-lock" style="font-size:0.85rem;"></i> 256-Bit SSL Encrypted & Bank-Grade Security Guarantee
+      </div>
       
       ${warningBanner}
       
@@ -696,15 +835,6 @@ function getCheckoutTemplate() {
                 <!-- Alignment helper -->
               </div>
             </div>
-            
-            <h3 class="checkout-section-title" style="margin-top: 3.5rem;">Sartorial Payment</h3>
-            <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 2rem; line-height: 1.6;">
-              Payments are securely encrypted and processed via Razorpay Gateway, supporting Cards, UPI, Netbanking, and Wallets.
-            </p>
-            
-            <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 1rem; padding: 1.25rem; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; ${hasStockIssue ? 'opacity: 0.5; cursor: not-allowed;' : ''}" ${hasStockIssue ? 'disabled' : ''}>
-              ${hasStockIssue ? 'Resolve Stock Issues to Pay' : 'Proceed to secure payment'}
-            </button>
           </form>
         </div>
         
@@ -750,9 +880,19 @@ function getCheckoutTemplate() {
               <div id="coupon-message" style="margin-top: 0.4rem; font-size: 0.75rem; color: var(--color-accent-gold); font-weight: 500;"></div>
             </div>
 
-            <div class="summary-total">
+            <div class="summary-total" style="margin-bottom: 1.5rem;">
               <span>Total Charge</span>
               <span>₹${grandTotal.toFixed(2)}</span>
+            </div>
+            
+            <div style="border-top: 1px dashed var(--color-border); padding-top: 1.5rem; margin-top: 1.5rem;">
+              <h4 style="font-size: 0.8rem; font-family: var(--font-display); text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-main); margin-bottom: 0.8rem; font-weight:600;"><i class="fas fa-lock" style="color:var(--color-accent-gold); margin-right:0.3rem;"></i> Secure Payment</h4>
+              <p style="font-size: 0.78rem; color: var(--color-text-muted); line-height: 1.5; margin-bottom: 1.2rem;">
+                Payments are securely encrypted and processed via Razorpay Gateway supporting Cards, UPI, Netbanking, and Wallets.
+              </p>
+              <button type="submit" form="checkout-form" class="btn btn-primary" style="width: 100%; padding: 1rem; font-size: 0.85rem; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; ${hasStockIssue ? 'opacity: 0.5; cursor: not-allowed;' : ''}" ${hasStockIssue ? 'disabled' : ''}>
+                ${hasStockIssue ? 'Resolve Stock Issues to Pay' : 'Proceed to secure payment'}
+              </button>
             </div>
           </div>
         </div>
@@ -764,48 +904,84 @@ function getCheckoutTemplate() {
 // 5. Login Template
 function getLoginTemplate() {
   return `
-    <div class="auth-layout glass-panel">
-      <div class="admin-tabs" style="margin-bottom: 2rem; border-bottom: 1px solid var(--color-border);">
-        <div class="admin-tab active" id="auth-tab-login" onclick="switchAuthTab('login')" style="flex: 1; text-align: center; padding: 1rem 0;">Sign In</div>
-        <div class="admin-tab" id="auth-tab-register" onclick="switchAuthTab('register')" style="flex: 1; text-align: center; padding: 1rem 0;">Register</div>
-      </div>
-      
-      <div id="auth-pane-login">
-        <h2 class="auth-title">Sign In</h2>
-        <form onsubmit="handleAuthLogin(event)">
-          <div class="form-group">
-            <label>Email Address</label>
-            <input type="email" class="form-input" id="login-email" placeholder="customer@hairah.com / admin@hairah.com" required>
+    <div class="catalog-layout" style="max-width: 950px; margin: 0 auto; padding: 3rem 1.5rem;">
+      <div class="auth-dual-grid">
+        <div style="padding-right: 1rem;">
+          <div style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.25em; color:var(--color-accent-gold); font-weight:600; margin-bottom:0.6rem;">HAIRAH Sartorial Club</div>
+          <h2 style="font-size:2.2rem; font-weight:300; margin:0 0 1rem 0;">Gentleman's Portal</h2>
+          <p style="color:var(--color-text-muted); font-size:0.9rem; line-height:1.6; margin-bottom:2rem;">
+            Access your saved sizing fit profiles, order histories, and seamless express checkouts.
+          </p>
+          
+          <div style="display:flex; flex-direction:column; gap:1.2rem;">
+            <div style="display:flex; gap:1rem; align-items:center;">
+              <div style="width:36px; height:36px; border-radius:50%; background:rgba(212,175,55,0.1); border:1px solid rgba(212,175,55,0.3); display:flex; align-items:center; justify-content:center; color:var(--color-accent-gold); font-size:0.9rem; shrink: 0;"><i class="fas fa-ruler-combined"></i></div>
+              <div>
+                <div style="font-size:0.85rem; font-weight:600;">Saved Sizing Profile</div>
+                <div style="font-size:0.75rem; color:var(--color-text-muted);">Store your chest, waist & fit metrics once.</div>
+              </div>
+            </div>
+            <div style="display:flex; gap:1rem; align-items:center;">
+              <div style="width:36px; height:36px; border-radius:50%; background:rgba(212,175,55,0.1); border:1px solid rgba(212,175,55,0.3); display:flex; align-items:center; justify-content:center; color:var(--color-accent-gold); font-size:0.9rem; shrink: 0;"><i class="fas fa-truck-fast"></i></div>
+              <div>
+                <div style="font-size:0.85rem; font-weight:600;">Real-Time Shipment Tracking</div>
+                <div style="font-size:0.75rem; color:var(--color-text-muted);">Monitor order dispatch and delivery status.</div>
+              </div>
+            </div>
+            <div style="display:flex; gap:1rem; align-items:center;">
+              <div style="width:36px; height:36px; border-radius:50%; background:rgba(212,175,55,0.1); border:1px solid rgba(212,175,55,0.3); display:flex; align-items:center; justify-content:center; color:var(--color-accent-gold); font-size:0.9rem; shrink: 0;"><i class="fas fa-shield-alt"></i></div>
+              <div>
+                <div style="font-size:0.85rem; font-weight:600;">Encrypted Account Security</div>
+                <div style="font-size:0.75rem; color:var(--color-text-muted);">Strict privacy and session protection.</div>
+              </div>
+            </div>
           </div>
-          <div class="form-group">
-            <label>Password</label>
-            <input type="password" class="form-input" id="login-password" placeholder="password / admin123" required>
-          </div>
-          <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 1.5rem;">Access Account</button>
-        </form>
-        <div class="auth-switch-link" style="margin-top: 2rem;">
-          <p>Standard Customer Demo: <code style="color:var(--color-accent-gold);">customer@hairah.com</code> / <code style="color:var(--color-accent-gold);">password</code></p>
-          <p style="margin-top: 0.5rem;">Standard Admin Demo: <code style="color:var(--color-accent-gold);">admin@hairah.com</code> / <code style="color:var(--color-accent-gold);">admin123</code></p>
         </div>
-      </div>
-      
-      <div id="auth-pane-register" style="display: none;">
-        <h2 class="auth-title">Register Account</h2>
-        <form onsubmit="handleAuthRegister(event)">
-          <div class="form-group">
-            <label>Full Name</label>
-            <input type="text" class="form-input" id="reg-name" placeholder="Johnathan Doe" required>
+
+        <div class="auth-layout glass-panel" style="margin: 0; width: 100%;">
+          <div class="admin-tabs" style="margin-bottom: 2rem; border-bottom: 1px solid var(--color-border);">
+            <div class="admin-tab active" id="auth-tab-login" onclick="switchAuthTab('login')" style="flex: 1; text-align: center; padding: 1rem 0;">Sign In</div>
+            <div class="admin-tab" id="auth-tab-register" onclick="switchAuthTab('register')" style="flex: 1; text-align: center; padding: 1rem 0;">Register</div>
           </div>
-          <div class="form-group">
-            <label>Email Address</label>
-            <input type="email" class="form-input" id="reg-email" required>
+          
+          <div id="auth-pane-login">
+            <h2 class="auth-title">Sign In</h2>
+            <form onsubmit="handleAuthLogin(event)">
+              <div class="form-group">
+                <label>Email Address</label>
+                <input type="email" class="form-input" id="login-email" placeholder="customer@hairah.com / admin@hairah.com" required>
+              </div>
+              <div class="form-group">
+                <label>Password</label>
+                <input type="password" class="form-input" id="login-password" placeholder="password / admin123" required>
+              </div>
+              <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 1.5rem;">Access Account</button>
+            </form>
+            <div class="auth-switch-link" style="margin-top: 2rem;">
+              <p>Customer Demo: <code style="color:var(--color-accent-gold);">customer@hairah.com</code> / <code style="color:var(--color-accent-gold);">password</code></p>
+              <p style="margin-top: 0.5rem;">Admin Demo: <code style="color:var(--color-accent-gold);">admin@hairah.com</code> / <code style="color:var(--color-accent-gold);">admin123</code></p>
+            </div>
           </div>
-          <div class="form-group">
-            <label>Choose Password</label>
-            <input type="password" class="form-input" id="reg-password" minlength="4" required>
+          
+          <div id="auth-pane-register" style="display: none;">
+            <h2 class="auth-title">Register Account</h2>
+            <form onsubmit="handleAuthRegister(event)">
+              <div class="form-group">
+                <label>Full Name</label>
+                <input type="text" class="form-input" id="reg-name" placeholder="Johnathan Doe" required>
+              </div>
+              <div class="form-group">
+                <label>Email Address</label>
+                <input type="email" class="form-input" id="reg-email" required>
+              </div>
+              <div class="form-group">
+                <label>Choose Password</label>
+                <input type="password" class="form-input" id="reg-password" minlength="4" required>
+              </div>
+              <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 1.5rem;">Create Account</button>
+            </form>
           </div>
-          <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 1.5rem;">Create Account</button>
-        </form>
+        </div>
       </div>
     </div>
   `;
@@ -1270,13 +1446,49 @@ function getAdminTemplate() {
   const revenueValue = filteredOrders.reduce((sum, o) => sum + o.total, 0);
   const ordersValue = filteredOrders.length;
   
-  const ordersRows = filteredOrders.map(o => {
+  // Calculate in-store vs online splits
+  let instoreRevenue = 0;
+  let instoreCount = 0;
+  let onlineRevenue = 0;
+  let onlineCount = 0;
+
+  filteredOrders.forEach(o => {
+    const isInstore = o.address === 'In-Store Checkout' || (o.payment_id && o.payment_id.startsWith('POS-'));
+    if (isInstore) {
+      instoreRevenue += o.total;
+      instoreCount += 1;
+    } else {
+      onlineRevenue += o.total;
+      onlineCount += 1;
+    }
+  });
+
+  const searchQ = (state.adminOrderSearchQuery || '').trim().toLowerCase();
+  const searchFilteredOrders = filteredOrders.filter(o => {
+    if (!searchQ) return true;
+    const idMatch = (o.id || '').toLowerCase().includes(searchQ);
+    const emailMatch = (o.customer_email || o.customerEmail || '').toLowerCase().includes(searchQ);
+    const nameMatch = (o.recipient_name || '').toLowerCase().includes(searchQ);
+    const phoneMatch = (o.phone || '').toLowerCase().includes(searchQ);
+    const addressMatch = (o.address || '').toLowerCase().includes(searchQ);
+    const paymentMatch = (o.payment_method || '').toLowerCase().includes(searchQ);
+    const paymentIdMatch = (o.payment_id || '').toLowerCase().includes(searchQ);
+    const itemMatch = (o.items || []).some(item => (item.title || '').toLowerCase().includes(searchQ));
+    return idMatch || emailMatch || nameMatch || phoneMatch || addressMatch || paymentMatch || paymentIdMatch || itemMatch;
+  });
+
+  const ordersRows = searchFilteredOrders.map(o => {
     const itemsLabel = o.items.map(item => `${item.title} (x${item.qty})`).join(', ');
     const paymentLabel = `Method: ${o.payment_method || 'Card'}\nTx ID: ${o.payment_id || 'N/A'}`;
+    const isInstore = o.address === 'In-Store Checkout' || (o.payment_id && o.payment_id.startsWith('POS-'));
+    const channelTag = isInstore
+      ? `<span class="badge" style="background: rgba(212,175,55,0.15); color: var(--color-accent-gold); border: 1px solid rgba(212,175,55,0.3); font-size: 0.7rem; padding: 0.2rem 0.5rem; border-radius: 4px; font-weight:600;"><i class="fas fa-store" style="font-size:0.65rem; margin-right:0.25rem;"></i> POS</span>`
+      : `<span class="badge" style="background: rgba(0,123,255,0.15); color: #66b0ff; border: 1px solid rgba(0,123,255,0.3); font-size: 0.7rem; padding: 0.2rem 0.5rem; border-radius: 4px; font-weight:600;"><i class="fas fa-globe" style="font-size:0.65rem; margin-right:0.25rem;"></i> Online</span>`;
     
     return `
       <tr>
         <td style="font-family:var(--font-display); font-weight:600; color:var(--color-accent-gold);" title="${paymentLabel}">${o.id}</td>
+        <td>${channelTag}</td>
         <td>${o.customer_email || o.customerEmail}</td>
         <td>${o.date}</td>
         <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${itemsLabel}">${itemsLabel}</td>
@@ -1406,6 +1618,16 @@ function getAdminTemplate() {
           <span class="stat-card-title">${ordersTitle}</span>
           <span class="stat-card-value">${ordersValue}</span>
         </div>
+        <div class="stat-card">
+          <span class="stat-card-title"><i class="fas fa-store" style="color: var(--color-accent-gold); margin-right: 0.3rem;"></i> In-Store Sales</span>
+          <span class="stat-card-value">₹${instoreRevenue.toFixed(2)}</span>
+          <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.4rem; font-weight: 500;">${instoreCount} Transactions</div>
+        </div>
+        <div class="stat-card">
+          <span class="stat-card-title"><i class="fas fa-globe" style="color: var(--color-accent-gold); margin-right: 0.3rem;"></i> Online Sales</span>
+          <span class="stat-card-value">₹${onlineRevenue.toFixed(2)}</span>
+          <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.4rem; font-weight: 500;">${onlineCount} Orders</div>
+        </div>
       </div>
       
       <!-- SVG Analytics Chart -->
@@ -1424,13 +1646,25 @@ function getAdminTemplate() {
         <div class="admin-tab ${state.adminActiveTab === 'payment' ? 'active' : ''}" onclick="switchAdminTab('payment')">Payment Settings</div>
         <div class="admin-tab ${state.adminActiveTab === 'predictions' ? 'active' : ''}" onclick="switchAdminTab('predictions')"><i class="fas fa-brain" style="font-size:0.75rem; margin-right:0.3rem; color: var(--color-accent-gold);"></i> AI Predictions</div>
         <div class="admin-tab ${state.adminActiveTab === 'coupons' ? 'active' : ''}" onclick="switchAdminTab('coupons')"><i class="fas fa-ticket-alt" style="font-size:0.75rem; margin-right:0.3rem; color: var(--color-accent-gold);"></i> Coupons</div>
+        <div class="admin-tab ${state.adminActiveTab === 'pos' ? 'active' : ''}" onclick="switchAdminTab('pos')"><i class="fas fa-cash-register" style="font-size:0.75rem; margin-right:0.3rem; color: var(--color-accent-gold);"></i> In-Store POS</div>
       </div>
       
       <div id="admin-pane-stats" style="display: ${state.adminActiveTab === 'stats' ? 'block' : 'none'};">
-        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 2rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem;">
           <h3 style="font-size: 1.25rem; margin: 0; letter-spacing:0.05em;">Placed Attire Orders</h3>
           
           <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
+            <!-- Search Order Registry Box -->
+            <div class="search-input-wrapper" style="margin: 0; min-width: 280px; width: auto; max-width: 380px;">
+              <input type="text" class="search-input" id="admin-order-search-box" placeholder="Search Order ID, Email, Name, Phone..." value="${state.adminOrderSearchQuery}" onkeyup="handleAdminOrderSearch(event)">
+              <button class="search-btn" onclick="triggerAdminOrderSearch()"><i class="fas fa-search"></i></button>
+            </div>
+            ${searchQ ? `
+              <button class="btn btn-secondary" onclick="clearAdminOrderSearch()" style="font-size:0.75rem; padding:0.6rem 1rem; margin:0; background-color: var(--color-bg-card);">
+                <i class="fas fa-times" style="color: var(--color-accent-gold);"></i> Clear Search
+              </button>
+            ` : ''}
+
             <!-- Date picker filter daily/weekly -->
             ${state.adminMetricView === 'daily' || state.adminMetricView === 'weekly' ? `
               <div style="display: flex; align-items: center; gap: 0.5rem; background: var(--color-bg-card); border: 1px solid var(--color-border); padding: 0.5rem 1rem; border-radius: 4px;">
@@ -1471,6 +1705,7 @@ function getAdminTemplate() {
             <thead>
               <tr>
                 <th>Order ID</th>
+                <th>Channel</th>
                 <th>Customer Email</th>
                 <th>Order Date</th>
                 <th>Purchased Items</th>
@@ -1480,7 +1715,7 @@ function getAdminTemplate() {
               </tr>
             </thead>
             <tbody>
-              ${ordersRows.length === 0 ? `<tr><td colspan="7" style="text-align:center; padding:5rem; color:var(--color-text-muted); font-style:italic;">No orders registered for this date.</td></tr>` : ordersRows}
+              ${ordersRows.length === 0 ? `<tr><td colspan="8" style="text-align:center; padding:5rem; color:var(--color-text-muted); font-style:italic;">No orders registered for this date.</td></tr>` : ordersRows}
             </tbody>
           </table>
         </div>
@@ -1791,9 +2026,609 @@ function getAdminTemplate() {
           </div>
         </div>
       </div>
+
+      <!-- In-Store POS Pane -->
+      <div id="admin-pane-pos" style="display: ${state.adminActiveTab === 'pos' ? 'block' : 'none'};">
+        ${getPOSTemplate()}
+      </div>
     </div>
   `;
 }
+
+function getPOSTemplate() {
+  // 1. Filter products based on search keyword
+  const filteredProds = PRODUCT_CATALOG.filter(p => {
+    if (!p.isVisible) return false;
+    return p.title.toLowerCase().includes(state.posSearchQuery.toLowerCase()) ||
+           p.id.toLowerCase().includes(state.posSearchQuery.toLowerCase());
+  });
+
+  // 2. Map POS cart items
+  let cartItemsHtml = "";
+  let subtotal = 0;
+  if (state.posCart.length === 0) {
+    cartItemsHtml = `
+      <tr>
+        <td colspan="5" style="text-align: center; color: var(--color-text-muted); padding: 3rem 1rem;">
+          No items added to current ticket.
+        </td>
+      </tr>
+    `;
+  } else {
+    cartItemsHtml = state.posCart.map((item, idx) => {
+      const itemSub = item.price * item.qty;
+      subtotal += itemSub;
+      return `
+        <tr>
+          <td>
+            <div style="font-weight:600; color:var(--color-text-main);">${item.title}</div>
+            <div style="font-size:0.75rem; color:var(--color-text-muted);">Size: ${item.size} | Color: ${item.color}</div>
+          </td>
+          <td>₹${item.price.toFixed(2)}</td>
+          <td>
+            <div style="display:flex; align-items:center; gap:0.5rem;">
+              <button class="qty-btn" onclick="updatePOSQty(${idx}, -1)" style="width:24px; height:24px; display:inline-flex; align-items:center; justify-content:center; padding:0; font-size:0.7rem; border-color:var(--color-border); border-radius:3px;">-</button>
+              <span style="font-size:0.85rem; font-weight:600; width:20px; text-align:center;">${item.qty}</span>
+              <button class="qty-btn" onclick="updatePOSQty(${idx}, 1)" style="width:24px; height:24px; display:inline-flex; align-items:center; justify-content:center; padding:0; font-size:0.7rem; border-color:var(--color-border); border-radius:3px;">+</button>
+            </div>
+          </td>
+          <td>₹${itemSub.toFixed(2)}</td>
+          <td style="text-align:right;">
+            <button onclick="removeFromPOSCart(${idx})" style="background:transparent; border:none; color:var(--color-danger); cursor:pointer; font-size:0.85rem;" title="Remove item">
+              <i class="fas fa-trash-alt"></i>
+            </button>
+          </td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  // 3. Coupon logic
+  let discount = 0;
+  if (state.posAppliedCoupon) {
+    if (state.posAppliedCoupon.discountType === 'percent') {
+      discount = subtotal * (state.posAppliedCoupon.value / 100);
+    } else {
+      discount = Math.min(state.posAppliedCoupon.value, subtotal);
+    }
+  }
+  const gst = state.posIncludeGST ? (subtotal - discount) * 0.05 : 0; // Optional GST 5%
+  const total = (subtotal - discount) + gst;
+
+  // 4. Products list HTML
+  const prodsGridHtml = filteredProds.map(p => {
+    // Generate quick selector dropdowns for size and color
+    const sizeOptions = p.sizes.map(s => {
+      const stock = p.sizes_stock[s] || 0;
+      return `<option value="${s}" ${stock <= 0 ? 'disabled' : ''}>Size ${s} (${stock} left)</option>`;
+    }).join('');
+    
+    const colorOptions = p.colors.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
+
+    const formId = `pos-add-form-${p.id}`;
+
+    return `
+      <div class="glass-panel" style="padding: 1.5rem; display: flex; gap: 1rem; align-items: center; background-color: var(--color-bg-card);">
+        <img src="${p.image}" alt="${p.title}" style="width:65px; height:65px; object-fit:cover; border-radius:4px; border:1px solid var(--color-border);">
+        <div style="flex-grow:1;">
+          <h4 style="margin:0 0 0.5rem 0; font-size:0.85rem; font-weight:600; color:var(--color-text-main);">${p.title}</h4>
+          <div style="font-size:0.85rem; color:var(--color-accent-gold); font-weight:600; margin-bottom:0.5rem;">₹${p.price.toFixed(2)}</div>
+          
+          <form id="${formId}" style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center;" onsubmit="event.preventDefault(); handleAddProductToPOS('${p.id}')">
+            <select class="form-input" name="size" required style="width:110px; font-size:0.75rem; padding:0.3rem 0.5rem; background:var(--color-bg-input); border-color:var(--color-border); height:auto;">
+              ${sizeOptions}
+            </select>
+            <select class="form-input" name="color" required style="width:110px; font-size:0.75rem; padding:0.3rem 0.5rem; background:var(--color-bg-input); border-color:var(--color-border); height:auto;">
+              ${colorOptions}
+            </select>
+            <button type="submit" class="btn btn-primary" style="padding:0.4rem 0.8rem; font-size:0.7rem; border-radius:3px;">
+              <i class="fas fa-plus"></i> Add
+            </button>
+          </form>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  return `
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2rem; flex-wrap:wrap; gap:1.2rem; border-bottom:1px solid var(--color-border); padding-bottom:1.5rem;">
+      <div>
+        <h3 style="font-size: 1.5rem; margin: 0; font-family: var(--font-display); font-weight: 300; letter-spacing:0.02em; color:var(--color-text-main);">
+          <i class="fas fa-cash-register" style="color:var(--color-accent-gold); margin-right:0.4rem;"></i> In-Store Checkout Terminal
+        </h3>
+        <p style="font-size:0.85rem; color:var(--color-text-muted); margin-top:0.4rem; margin-bottom:0;">Process immediate physical transactions, custom tailored orders, and print tax receipts.</p>
+      </div>
+      <div style="display:flex; gap:0.8rem; align-items:center;">
+        <button onclick="openCustomPOSItemModal()" class="btn btn-secondary" style="padding:0.6rem 1.2rem; font-size:0.75rem; margin:0; display:flex; gap:0.4rem; align-items:center; background-color: var(--color-bg-card);">
+          <i class="fas fa-plus-circle" style="color: var(--color-accent-gold);"></i> Custom / Unlisted Item
+        </button>
+        <button onclick="togglePOSFullscreen()" class="btn btn-secondary" style="padding:0.6rem 1.2rem; font-size:0.75rem; margin:0; display:flex; gap:0.4rem; align-items:center; background-color: var(--color-bg-card); border-color: var(--color-accent-gold); color: var(--color-accent-gold);">
+          <i class="fas ${state.posFullscreen ? 'fa-compress' : 'fa-expand'}"></i> ${state.posFullscreen ? 'Exit Terminal' : 'Full Screen Terminal'}
+        </button>
+      </div>
+    </div>
+
+    <div class="grid-two-col-uneven" style="align-items: start; gap: 2.5rem;">
+      <!-- Left Column: Fast Product Lookup -->
+      <div>
+        <div class="search-input-wrapper" style="margin-bottom: 2rem;">
+          <input type="text" class="search-input" id="pos-search-box" placeholder="Lookup apparel by name or ID..." value="${state.posSearchQuery}" onkeyup="handlePOSSearch(event)">
+          <button class="search-btn" onclick="triggerPOSSearch()"><i class="fas fa-search"></i></button>
+        </div>
+        
+        <div style="display:flex; flex-direction:column; gap:1.2rem; max-height: 60vh; overflow-y: auto; padding-right:0.5rem;">
+          ${prodsGridHtml || `<div style="text-align:center; padding:3rem 0; color:var(--color-text-muted);">No attire match found.</div>`}
+        </div>
+      </div>
+
+      <!-- Right Column: Current Ticket & Checkout -->
+      <div class="glass-panel" style="padding: 2.2rem; background-color: var(--color-bg-card); display: flex; flex-direction: column; gap: 1.5rem;">
+        <h4 style="margin:0; font-size: 0.95rem; text-transform: uppercase; letter-spacing:0.05em; border-bottom: 1px dashed var(--color-border); padding-bottom: 0.5rem; color:var(--color-accent-gold);">Current Sales Ticket</h4>
+        
+        <div class="admin-table-wrapper" style="max-height: 250px; overflow-y:auto; margin-bottom: 1rem; border: 1px solid var(--color-border);">
+          <table class="admin-table" style="font-size:0.8rem;">
+            <thead>
+              <tr>
+                <th>Apparel Description</th>
+                <th>Rate</th>
+                <th>Qty</th>
+                <th>Sub</th>
+                <th style="text-align:right;"></th>
+              </tr>
+            </thead>
+            <tbody>
+              ${cartItemsHtml}
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Walk-In Customer Info -->
+        <div style="border-top: 1px dashed var(--color-border); padding-top: 1rem;">
+          <label style="display:block; font-size:0.75rem; color:var(--color-text-muted); font-weight:600; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:1rem;">Customer Information</label>
+          <div class="form-row" style="grid-template-columns: 1fr 1fr !important; gap:1rem;">
+            <div class="form-group">
+              <label style="font-size:0.7rem;">Customer Name</label>
+              <input type="text" class="form-input" id="pos-cust-name" placeholder="Walk-In Customer" value="${state.posCustomer.name || ''}" oninput="state.posCustomer.name=this.value">
+            </div>
+            <div class="form-group">
+              <label style="font-size:0.7rem;">Phone Number</label>
+              <input type="text" class="form-input" id="pos-cust-phone" placeholder="N/A" value="${state.posCustomer.phone || ''}" oninput="state.posCustomer.phone=this.value">
+            </div>
+          </div>
+          <div class="form-group" style="margin-top: 0.8rem;">
+            <label style="font-size:0.7rem;">Email Address</label>
+            <input type="email" class="form-input" id="pos-cust-email" placeholder="walkin@hairah.com" value="${state.posCustomer.email || ''}" oninput="state.posCustomer.email=this.value">
+          </div>
+        </div>
+
+        <!-- Coupon Settings -->
+        <div style="border-top: 1px dashed var(--color-border); padding-top: 1rem; display: flex; gap: 0.8rem; align-items: flex-end;">
+          <div class="form-group" style="flex-grow:1;">
+            <label style="font-size:0.7rem;">In-Store Promo Discount Code</label>
+            <input type="text" class="form-input" id="pos-promo-code" placeholder="WELCOME10" style="text-transform: uppercase;">
+          </div>
+          ${state.posAppliedCoupon ? `
+            <button onclick="removePOSCoupon()" class="btn btn-secondary" style="padding:0.8rem 1rem; border-color:var(--color-danger); color:var(--color-danger);">Remove</button>
+          ` : `
+            <button onclick="applyPOSCoupon()" class="btn btn-secondary" style="padding:0.8rem 1rem;">Apply</button>
+          `}
+        </div>
+
+        <!-- Total Calculation Box -->
+        <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--color-border); padding: 1.25rem; border-radius: 4px;">
+          <div style="display:flex; justify-content:space-between; font-size:0.8rem; margin-bottom:0.6rem; color:var(--color-text-muted);">
+            <span>Subtotal:</span>
+            <span>₹${subtotal.toFixed(2)}</span>
+          </div>
+          ${state.posAppliedCoupon ? `
+            <div style="display:flex; justify-content:space-between; font-size:0.8rem; margin-bottom:0.6rem; color:var(--color-success); font-weight:600;">
+              <span>Discount (${state.posAppliedCoupon.code}):</span>
+              <span>-₹${discount.toFixed(2)}</span>
+            </div>
+          ` : ''}
+          <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.8rem; margin-bottom:0.6rem; color:var(--color-text-muted);">
+            <div style="display:flex; align-items:center; gap:0.4rem;">
+              <input type="checkbox" id="pos-include-gst-cb" ${state.posIncludeGST ? 'checked' : ''} onchange="state.posIncludeGST=this.checked; renderCurrentView();" style="width:14px; height:14px; margin:0; cursor:pointer;">
+              <label for="pos-include-gst-cb" style="margin:0; cursor:pointer;">Apply GST (5%)</label>
+            </div>
+            <span>₹${gst.toFixed(2)}</span>
+          </div>
+          <div style="display:flex; justify-content:space-between; font-size:1.15rem; font-weight:700; color:var(--color-text-main); border-top:1px solid var(--color-border); padding-top:0.8rem;">
+            <span>Grand Total:</span>
+            <span style="color:var(--color-accent-gold);">₹${total.toFixed(2)}</span>
+          </div>
+        </div>
+
+        <!-- Payment Method -->
+        <div style="display:flex; gap:0.5rem; justify-content:space-between; align-items:center;">
+          <label style="font-size:0.8rem; color:var(--color-text-muted); font-weight:600; margin:0;">Payment Mode:</label>
+          <div style="display:flex; gap:0.5rem;">
+            <button class="btn ${state.posPaymentMethod !== 'UPI' && state.posPaymentMethod !== 'Card' ? 'btn-primary' : 'btn-secondary'}" onclick="state.posPaymentMethod='Cash'; renderCurrentView();" style="padding:0.4rem 0.8rem; font-size:0.75rem;">Cash</button>
+            <button class="btn ${state.posPaymentMethod === 'UPI' ? 'btn-primary' : 'btn-secondary'}" onclick="state.posPaymentMethod='UPI'; renderCurrentView();" style="padding:0.4rem 0.8rem; font-size:0.75rem;">UPI</button>
+            <button class="btn ${state.posPaymentMethod === 'Card' ? 'btn-primary' : 'btn-secondary'}" onclick="state.posPaymentMethod='Card'; renderCurrentView();" style="padding:0.4rem 0.8rem; font-size:0.75rem;">Card</button>
+          </div>
+        </div>
+
+        <button onclick="checkoutPOS()" class="btn btn-primary" style="width:100%; padding:1rem; font-size:0.9rem; text-transform:uppercase; letter-spacing:0.05em; font-weight:700;">
+          <i class="fas fa-print" style="margin-right:0.4rem;"></i> Complete Sale & Print
+        </button>
+      </div>
+    </div>
+  `;
+}
+
+// --- POS Action Handlers ---
+
+window.handlePOSSearch = function(event) {
+  state.posSearchQuery = event.target.value;
+  if (event.key === "Enter") {
+    renderCurrentView();
+  }
+};
+
+window.triggerPOSSearch = function() {
+  const input = document.getElementById("pos-search-box");
+  if (input) {
+    state.posSearchQuery = input.value;
+    renderCurrentView();
+  }
+};
+
+window.handleAddProductToPOS = function(prodId) {
+  const form = document.getElementById(`pos-add-form-${prodId}`);
+  if (!form) return;
+  const size = form.elements['size'].value;
+  const color = form.elements['color'].value;
+  
+  const prod = PRODUCT_CATALOG.find(p => p.id === prodId);
+  if (!prod) return;
+  
+  const stock = prod.sizes_stock[size] || 0;
+  const existingIdx = state.posCart.findIndex(item => item.id === prodId && item.size === size && item.color === color);
+  
+  if (existingIdx !== -1) {
+    const newQty = state.posCart[existingIdx].qty + 1;
+    if (newQty > stock) {
+      showToast(`Cannot add. Only ${stock} units in stock for size ${size}.`);
+      return;
+    }
+    state.posCart[existingIdx].qty = newQty;
+  } else {
+    if (stock < 1) {
+      showToast(`Size ${size} is out of stock.`);
+      return;
+    }
+    state.posCart.push({
+      id: prod.id,
+      title: prod.title,
+      price: prod.price,
+      size: size,
+      color: color,
+      qty: 1
+    });
+  }
+  showToast(`Added ${prod.title} (Size: ${size}) to ticket.`);
+  renderCurrentView();
+};
+
+window.removeFromPOSCart = function(index) {
+  state.posCart.splice(index, 1);
+  renderCurrentView();
+};
+
+window.updatePOSQty = function(index, delta) {
+  const item = state.posCart[index];
+  const prod = PRODUCT_CATALOG.find(p => p.id === item.id);
+  if (!prod) return;
+  const stock = prod.sizes_stock[item.size] || 0;
+  
+  const newQty = item.qty + delta;
+  if (newQty < 1) return;
+  if (newQty > stock) {
+    showToast(`Cannot increase. Only ${stock} units in stock.`);
+    return;
+  }
+  item.qty = newQty;
+  renderCurrentView();
+};
+
+window.applyPOSCoupon = async function() {
+  const input = document.getElementById("pos-promo-code");
+  if (!input) return;
+  const code = input.value.trim().toUpperCase();
+  if (!code) return;
+  
+  try {
+    showToast("Validating in-store coupon...");
+    const response = await fetch('/api/coupons/validate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code })
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.error || "Invalid coupon");
+    }
+    state.posAppliedCoupon = {
+      code: result.code,
+      discountType: result.discountType,
+      value: result.value
+    };
+    showToast(`Promo discount ${code} applied successfully.`);
+    renderCurrentView();
+  } catch (error) {
+    showToast(error.message);
+  }
+};
+
+window.removePOSCoupon = function() {
+  state.posAppliedCoupon = null;
+  renderCurrentView();
+};
+
+window.checkoutPOS = async function() {
+  if (state.posCart.length === 0) {
+    showToast("Cannot checkout empty sales ticket.");
+    return;
+  }
+  
+  const name = document.getElementById("pos-cust-name").value.trim() || "Walk-In Customer";
+  const phone = document.getElementById("pos-cust-phone").value.trim() || "N/A";
+  const email = document.getElementById("pos-cust-email").value.trim() || "walkin@hairah.com";
+  
+  let subtotal = 0;
+  state.posCart.forEach(item => {
+    subtotal += item.price * item.qty;
+  });
+  
+  let discount = 0;
+  if (state.posAppliedCoupon) {
+    if (state.posAppliedCoupon.discountType === 'percent') {
+      discount = subtotal * (state.posAppliedCoupon.value / 100);
+    } else {
+      discount = Math.min(state.posAppliedCoupon.value, subtotal);
+    }
+  }
+  const gst = state.posIncludeGST ? (subtotal - discount) * 0.05 : 0;
+  const total = (subtotal - discount) + gst;
+  
+  const orderData = {
+    recipientName: name,
+    recipientEmail: email,
+    phone: phone,
+    address: "In-Store Checkout",
+    city: "Bengaluru",
+    items: state.posCart,
+    total: total,
+    paymentMethod: state.posPaymentMethod || "Cash"
+  };
+  
+  try {
+    showToast("Processing in-store sale...");
+    const response = await fetch('/api/pos/orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(orderData),
+      credentials: 'include'
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.error || "Checkout failed");
+    }
+    
+    showToast("Checkout completed successfully.");
+    
+    // Open receipt print dialog modal
+    openPOSReceipt(result.orderId, orderData, subtotal, discount, gst, total);
+    
+    // Clear POS state
+    state.posCart = [];
+    state.posAppliedCoupon = null;
+    state.posCustomer = { name: "", phone: "", email: "" };
+    
+    // Sync local catalog inventory counts
+    await syncSessionAndDatabase();
+    renderCurrentView();
+  } catch (error) {
+    showToast("POS Checkout failed: " + error.message);
+  }
+};
+
+window.openPOSReceipt = function(orderId, orderData, subtotal, discount, gst, total) {
+  const itemsRowsHtml = orderData.items.map(item => `
+    <div style="display:flex; justify-content:space-between; font-size:0.8rem; margin-bottom:0.4rem; border-bottom:1px dotted #eee; padding-bottom:0.3rem;">
+      <span>${item.title} (x${item.qty}) [Size: ${item.size}]</span>
+      <span>₹${(item.price * item.qty).toFixed(2)}</span>
+    </div>
+  `).join('');
+  
+  const discountHtml = discount > 0 ? `
+    <div style="display:flex; justify-content:space-between; font-size:0.8rem; margin-bottom:0.4rem; color:#28a745;">
+      <span>Discount:</span>
+      <span>-₹${discount.toFixed(2)}</span>
+    </div>
+  ` : '';
+
+  const modalHtml = `
+    <div class="stripe-modal-backdrop" id="pos-receipt-modal" style="display: flex;">
+      <div class="stripe-modal-content" style="max-width: 380px; font-family: 'Courier New', Courier, monospace; color:#000; background:#fff; padding: 2rem; border-radius: 4px; box-shadow: 0 4px 30px rgba(0,0,0,0.3);">
+        <div style="text-align:center; border-bottom:1px dashed #000; padding-bottom:1rem; margin-bottom:1rem;">
+          <h2 style="font-size:1.4rem; margin:0 0 0.2rem 0; font-weight:700; letter-spacing:1px; color:#000;">HAIRAH</h2>
+          <div style="font-size:0.75rem; text-transform:uppercase; letter-spacing:2px; font-weight:600; margin-bottom:0.5rem; color:#000;">Mens World</div>
+          <div style="font-size:0.7rem; color:#555;">Bengaluru Store, India</div>
+          <div style="font-size:0.7rem; color:#555;">Phone: +91 98765 43210</div>
+        </div>
+        
+        <div style="font-size:0.7rem; margin-bottom:1rem; line-height:1.4; color:#333;">
+          <div><strong>Order ID:</strong> ${orderId}</div>
+          <div><strong>Date:</strong> ${new Date().toLocaleDateString('en-IN', {day:'numeric', month:'short', year:'numeric'})}</div>
+          <div><strong>Customer:</strong> ${orderData.recipientName}</div>
+          <div><strong>Phone:</strong> ${orderData.phone}</div>
+          <div><strong>Payment Mode:</strong> ${orderData.paymentMethod}</div>
+        </div>
+        
+        <div style="border-bottom:1px dashed #000; padding-bottom:0.8rem; margin-bottom:0.8rem; color:#000;">
+          ${itemsRowsHtml}
+        </div>
+        
+        <div style="border-bottom:1px dashed #000; padding-bottom:0.8rem; margin-bottom:1rem; line-height:1.4; color:#000;">
+          <div style="display:flex; justify-content:space-between; font-size:0.8rem; margin-bottom:0.4rem;">
+            <span>Subtotal:</span>
+            <span>₹${subtotal.toFixed(2)}</span>
+          </div>
+          ${discountHtml}
+          ${gst > 0 ? `
+            <div style="display:flex; justify-content:space-between; font-size:0.8rem; margin-bottom:0.4rem;">
+              <span>GST (5%):</span>
+              <span>₹${gst.toFixed(2)}</span>
+            </div>
+          ` : `
+            <div style="display:flex; justify-content:space-between; font-size:0.8rem; margin-bottom:0.4rem; color:#666;">
+              <span>GST:</span>
+              <span>Exempt</span>
+            </div>
+          `}
+          <div style="display:flex; justify-content:space-between; font-size:1.1rem; font-weight:700; border-top:1px solid #000; padding-top:0.5rem; margin-top:0.5rem;">
+            <span>TOTAL PAID:</span>
+            <span>₹${total.toFixed(2)}</span>
+          </div>
+        </div>
+        
+        <div style="text-align:center; font-size:0.7rem; color:#555; margin-bottom:1.5rem;">
+          Thank you for shopping at HAIRAH Men's World!<br>Visit us again.
+        </div>
+        
+        <div style="display:flex; gap:0.5rem;">
+          <button onclick="window.print()" class="btn" style="flex-grow:1; background:#000; border:1px solid #000; color:#fff; padding:0.6rem; font-size:0.8rem; cursor:pointer; font-weight:bold;">
+            <i class="fas fa-print"></i> Print Receipt
+          </button>
+          <button onclick="closePOSReceiptModal()" class="btn" style="background:transparent; border:1px solid #ccc; color:#000; padding:0.6rem; font-size:0.8rem; cursor:pointer;">
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  const backdrop = document.createElement('div');
+  backdrop.id = "pos-receipt-backdrop-wrapper";
+  backdrop.innerHTML = modalHtml;
+  document.body.appendChild(backdrop);
+};
+
+window.closePOSReceiptModal = function() {
+  const el = document.getElementById("pos-receipt-backdrop-wrapper");
+  if (el) el.remove();
+};
+
+window.togglePOSFullscreen = function() {
+  state.posFullscreen = !state.posFullscreen;
+  
+  if (state.posFullscreen) {
+    document.body.classList.add("pos-fullscreen-mode-active");
+    // Launch HTML5 Native Fullscreen API
+    if (document.documentElement.requestFullscreen) {
+      document.documentElement.requestFullscreen().catch(err => console.log("Fullscreen request:", err));
+    } else if (document.documentElement.webkitRequestFullscreen) {
+      document.documentElement.webkitRequestFullscreen();
+    }
+  } else {
+    document.body.classList.remove("pos-fullscreen-mode-active");
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(err => console.log("Exit fullscreen:", err));
+    } else if (document.webkitFullscreenElement) {
+      document.webkitExitFullscreen();
+    }
+  }
+  
+  renderCurrentView();
+};
+
+window.openCustomPOSItemModal = function() {
+  const modalDiv = document.createElement("div");
+  modalDiv.className = "stripe-modal-backdrop";
+  modalDiv.id = "custom-pos-item-modal";
+  modalDiv.style.display = "flex";
+  
+  modalDiv.innerHTML = `
+    <div class="stripe-modal-content" style="max-width: 420px; padding: 2.2rem; background: var(--color-bg-card); color: var(--color-text-main); font-family: inherit;">
+      <div class="stripe-modal-header" style="margin-bottom: 1.5rem; padding-bottom: 1rem; border-color: var(--color-border);">
+        <h4 style="margin:0; font-size: 0.95rem; text-transform: uppercase; color:var(--color-accent-gold); font-weight:600;">Add Unlisted Attire Item</h4>
+        <button onclick="closeCustomPOSItemModal()" style="background:none; border:none; color:var(--color-text-muted); cursor:pointer; font-size: 1.1rem;"><i class="fas fa-times"></i></button>
+      </div>
+      
+      <form onsubmit="handleAddCustomPOSItem(event)">
+        <div class="form-group" style="margin-bottom:1.2rem;">
+          <label style="font-size:0.7rem;">Item Title / Description</label>
+          <input type="text" class="form-input" id="cpos-title" required placeholder="e.g. Custom Fit Silk Linen Attire" style="background:var(--color-bg-input); border-color:var(--color-border); color:var(--color-text-main);">
+        </div>
+
+        <div class="form-group" style="margin-bottom:1.2rem;">
+          <label style="font-size:0.7rem;">Unit Price (₹)</label>
+          <input type="number" step="0.01" class="form-input" id="cpos-price" required placeholder="1499.00" style="background:var(--color-bg-input); border-color:var(--color-border); color:var(--color-text-main);">
+        </div>
+
+        <div class="form-row" style="grid-template-columns: 1fr 1fr !important; gap:1rem; margin-bottom:1.5rem;">
+          <div class="form-group">
+            <label style="font-size:0.7rem;">Category</label>
+            <select class="form-input" id="cpos-category" required style="background:var(--color-bg-input); border-color:var(--color-border); color:var(--color-text-main);">
+              <option value="Shirt" style="background:var(--color-bg-card);" selected>Shirt</option>
+              <option value="Pant" style="background:var(--color-bg-card);">Pant / Trouser</option>
+              <option value="T-Shirt" style="background:var(--color-bg-card);">T-Shirt</option>
+              <option value="Suit/Blazer" style="background:var(--color-bg-card);">Suit / Blazer</option>
+              <option value="Accessory" style="background:var(--color-bg-card);">Accessory</option>
+              <option value="Other" style="background:var(--color-bg-card);">Other / Custom</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label style="font-size:0.7rem;">Size Description</label>
+            <select class="form-input" id="cpos-size" required style="background:var(--color-bg-input); border-color:var(--color-border); color:var(--color-text-main);">
+              <option value="S" style="background:var(--color-bg-card);">S</option>
+              <option value="M" style="background:var(--color-bg-card);" selected>M</option>
+              <option value="L" style="background:var(--color-bg-card);">L</option>
+              <option value="XL" style="background:var(--color-bg-card);">XL</option>
+              <option value="XXL" style="background:var(--color-bg-card);">XXL</option>
+              <option value="Unique" style="background:var(--color-bg-card);">Custom / Unique Fit</option>
+            </select>
+          </div>
+        </div>
+        
+        <button type="submit" class="btn btn-primary" style="width:100%; padding:0.8rem;">Add Item to Ticket</button>
+      </form>
+    </div>
+  `;
+  
+  document.body.appendChild(modalDiv);
+};
+
+window.closeCustomPOSItemModal = function() {
+  const modal = document.getElementById("custom-pos-item-modal");
+  if (modal) modal.remove();
+};
+
+window.handleAddCustomPOSItem = function(e) {
+  e.preventDefault();
+  const rawTitle = document.getElementById("cpos-title").value.trim();
+  const price = parseFloat(document.getElementById("cpos-price").value) || 0;
+  const category = document.getElementById("cpos-category").value;
+  const size = document.getElementById("cpos-size").value;
+  
+  const formattedTitle = `${rawTitle} [${category}]`;
+
+  state.posCart.push({
+    id: "custom-" + Date.now(),
+    title: formattedTitle,
+    price: price,
+    category: category,
+    size: size,
+    color: "Standard",
+    qty: 1
+  });
+  
+  showToast(`Added custom "${rawTitle}" (${size}) to ticket.`);
+  closeCustomPOSItemModal();
+  renderCurrentView();
+};
 
 // --- Home Actions ---
 window.filterAndShop = function(category) {
@@ -1923,7 +2758,7 @@ function getLookRecommendations(prod) {
 
 // --- Product Modal (PDP) Actions ---
 let isBackNav = false;
-window.openPDP = async function(productId) {
+window.openPDP = function(productId) {
   const product = PRODUCT_CATALOG.find(p => p.id === productId);
   if (!product) return;
   
@@ -1940,39 +2775,6 @@ window.openPDP = async function(productId) {
   product.inStock = totalStock > 0 && product.inStock;
   
   state.selectedProduct = product;
-  
-  // A. Load reviews dynamically from backend
-  let reviewsList = [];
-  try {
-    reviewsList = await apiCall(`/api/reviews/${productId}`);
-    state.reviews[productId] = reviewsList;
-  } catch (error) {
-    console.error("Failed to load reviews");
-  }
-
-  // Compute stats
-  const totalReviews = reviewsList.length;
-  let avgRating = 5.0;
-  if (totalReviews > 0) {
-    avgRating = reviewsList.reduce((s, r) => s + r.rating, 0) / totalReviews;
-  }
-  
-  const starHeaderHtml = Array(5).fill(0).map((_, i) => 
-    `<i class="${i < Math.round(avgRating) ? 'fas' : 'far'} fa-star"></i>`
-  ).join('');
-
-  const reviewsHtml = reviewsList.map(r => `
-    <div class="review-item">
-      <div class="review-item-meta">
-        <span class="review-author">${r.author}</span>
-        <span class="review-date">${r.date}</span>
-      </div>
-      <div class="rating-stars" style="margin-bottom:0.5rem;">
-        ${Array(5).fill(0).map((_, i) => `<i class="${i < r.rating ? 'fas' : 'far'} fa-star"></i>`).join('')}
-      </div>
-      <p class="review-content">${r.content}</p>
-    </div>
-  `).join('');
 
   const recommendations = getLookRecommendations(product);
   let recsHtml = '';
@@ -2113,20 +2915,24 @@ window.openPDP = async function(productId) {
       
       <div class="pdp-reviews-container">
         <div class="reviews-header">
-          <h4 style="font-size: 1.1rem; letter-spacing:0.05em;">Client Reviews (${totalReviews})</h4>
+          <h4 style="font-size: 1.1rem; letter-spacing:0.05em;">Client Reviews</h4>
           <button class="btn btn-secondary" style="padding:0.5rem 1rem; font-size:0.7rem;" onclick="openReviewModal()">Write Review</button>
         </div>
         
-        <div class="review-stats" style="margin-bottom:2rem; padding: 1.5rem; background: var(--color-bg-card); border: 1px solid var(--color-border);">
-          <span class="review-avg-num">${avgRating.toFixed(1)}</span>
-          <div>
-            <div class="rating-stars" style="font-size:0.9rem; margin-bottom:0.2rem;">${starHeaderHtml}</div>
-            <span style="font-size:0.75rem; color:var(--color-text-muted);">Verified rating average</span>
-          </div>
+        <div id="pdp-reviews-loading" style="padding: 2rem; text-align: center; color: var(--color-text-muted);">
+          <i class="fas fa-spinner fa-spin" style="margin-right: 0.5rem; color: var(--color-accent-gold);"></i> Loading client evaluations...
         </div>
         
-        <div class="review-list">
-          ${totalReviews === 0 ? `<p style="color:var(--color-text-muted); font-size:0.9rem; text-align:center;">No reviews yet. Be the first to leave review feedback!</p>` : reviewsHtml}
+        <div id="pdp-reviews-content" style="display: none;">
+          <div class="review-stats" style="margin-bottom:2rem; padding: 1.5rem; background: var(--color-bg-card); border: 1px solid var(--color-border); display: flex; align-items: center; gap: 1.5rem;">
+            <span class="review-avg-num" id="pdp-reviews-avg">5.0</span>
+            <div>
+              <div class="rating-stars" id="pdp-reviews-stars" style="font-size:0.9rem; margin-bottom:0.2rem;"></div>
+              <span style="font-size:0.75rem; color:var(--color-text-muted);">Verified rating average</span>
+            </div>
+          </div>
+          
+          <div class="review-list" id="pdp-reviews-list"></div>
         </div>
       </div>
     </div>
@@ -2154,6 +2960,64 @@ window.openPDP = async function(productId) {
   pdpModal.classList.add("active");
   pdpModal.scrollTo({ top: 0 }); // Scroll modal container back to top
   document.body.style.overflow = "hidden";
+
+  // Trigger reviews load asynchronously in the background to render the modal instantly!
+  apiCall(`/api/reviews/${productId}`).then(reviewsList => {
+    state.reviews[productId] = reviewsList;
+    
+    // Insert values only if the user is still viewing this product modal
+    if (state.selectedProduct && state.selectedProduct.id === productId) {
+      const totalReviews = reviewsList.length;
+      let avgRating = 5.0;
+      if (totalReviews > 0) {
+        avgRating = reviewsList.reduce((s, r) => s + r.rating, 0) / totalReviews;
+      }
+      
+      const starHeaderHtml = Array(5).fill(0).map((_, i) => 
+        `<i class="${i < Math.round(avgRating) ? 'fas' : 'far'} fa-star"></i>`
+      ).join('');
+
+      const reviewsHtml = reviewsList.map(r => `
+        <div class="review-item">
+          <div class="review-item-meta">
+            <span class="review-author">${r.author}</span>
+            <span class="review-date">${r.date}</span>
+          </div>
+          <div class="rating-stars" style="margin-bottom:0.5rem;">
+            ${Array(5).fill(0).map((_, i) => `<i class="${i < r.rating ? 'fas' : 'far'} fa-star"></i>`).join('')}
+          </div>
+          <p class="review-content">${r.content}</p>
+        </div>
+      `).join('');
+
+      const headerTitle = pdpContentContainer.querySelector(".pdp-reviews-container h4");
+      if (headerTitle) {
+        headerTitle.textContent = `Client Reviews (${totalReviews})`;
+      }
+
+      const loadingEl = document.getElementById("pdp-reviews-loading");
+      const contentEl = document.getElementById("pdp-reviews-content");
+      const avgEl = document.getElementById("pdp-reviews-avg");
+      const starsEl = document.getElementById("pdp-reviews-stars");
+      const listEl = document.getElementById("pdp-reviews-list");
+
+      if (loadingEl) loadingEl.style.display = "none";
+      if (contentEl) contentEl.style.display = "block";
+      if (avgEl) avgEl.textContent = avgRating.toFixed(1);
+      if (starsEl) starsEl.innerHTML = starHeaderHtml;
+      if (listEl) {
+        listEl.innerHTML = totalReviews === 0 
+          ? `<p style="color:var(--color-text-muted); font-size:0.9rem; text-align:center;">No reviews yet. Be the first to leave review feedback!</p>` 
+          : reviewsHtml;
+      }
+    }
+  }).catch(err => {
+    console.error("Failed to load reviews:", err);
+    const loadingEl = document.getElementById("pdp-reviews-loading");
+    if (loadingEl) {
+      loadingEl.innerHTML = `<em style="color:var(--color-danger); font-size:0.85rem;">Failed to retrieve guest reviews.</em>`;
+    }
+  });
 };
 
 window.closePDPModal = function() {
@@ -2162,7 +3026,11 @@ window.closePDPModal = function() {
   state.pdpHistory = []; // Clear history stack when modal is closed
   const backBtnContainer = document.getElementById("pdp-back-btn-container");
   if (backBtnContainer) backBtnContainer.innerHTML = '';
-  document.body.style.overflow = "";
+  if (state.posFullscreen && state.currentView === "admin") {
+    document.body.style.overflow = "hidden";
+  } else {
+    document.body.style.overflow = "";
+  }
 };
 
 window.navigateBackPDP = function() {
@@ -2323,7 +3191,11 @@ function closeCartDrawer() {
   cartDrawer.classList.remove("active");
   cartDrawerBackdrop.classList.remove("active");
   if (state.currentView !== "shop" && state.currentView !== "wishlist") {
-    document.body.style.overflow = "";
+    if (state.posFullscreen && state.currentView === "admin") {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
   }
 }
 
@@ -2760,13 +3632,17 @@ window.handlePlaceOrder = async function(event) {
     
     // Load Razorpay SDK script dynamically if not loaded
     if (typeof window.Razorpay === 'undefined') {
-      await new Promise((resolve, reject) => {
-        const script = document.createElement('script');
-        script.src = 'https://checkout.razorpay.com/v1/checkout.js';
-        script.onload = resolve;
-        script.onerror = () => reject(new Error("Failed to load Razorpay Checkout SDK"));
-        document.head.appendChild(script);
-      });
+      try {
+        await new Promise((resolve, reject) => {
+          const script = document.createElement('script');
+          script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+          script.onload = resolve;
+          script.onerror = () => reject(new Error("Failed to load Razorpay SDK"));
+          document.head.appendChild(script);
+        });
+      } catch (sdkErr) {
+        console.warn("Razorpay external SDK load notice:", sdkErr);
+      }
     }
     
     // 1. Create Razorpay Order on server
@@ -2785,8 +3661,8 @@ window.handlePlaceOrder = async function(event) {
       items: state.cart
     };
     
-    // 2. If backend config is mock or simulated, open our mock Razorpay modal
-    if (orderRes.gatewayType === 'Simulated') {
+    // 2. If backend config is mock or Razorpay SDK is blocked on mobile, open mobile payment portal modal
+    if (orderRes.gatewayType === 'Simulated' || typeof window.Razorpay === 'undefined') {
       openMockRazorpayModal(orderRes, orderPayload);
     } else {
       // Launch official Razorpay standard popup checkout
@@ -2916,6 +3792,26 @@ window.handleAdminChangeEndDateFilter = function(val) {
   renderCurrentView();
 };
 
+window.handleAdminOrderSearch = function(e) {
+  state.adminOrderSearchQuery = e.target.value;
+  if (e.key === "Enter") {
+    renderCurrentView();
+  }
+};
+
+window.triggerAdminOrderSearch = function() {
+  const input = document.getElementById("admin-order-search-box");
+  if (input) {
+    state.adminOrderSearchQuery = input.value;
+    renderCurrentView();
+  }
+};
+
+window.clearAdminOrderSearch = function() {
+  state.adminOrderSearchQuery = "";
+  renderCurrentView();
+};
+
 window.downloadDailyOrdersCSV = function() {
   const filteredOrders = state.lastFilteredOrders || state.orders;
   
@@ -2924,16 +3820,19 @@ window.downloadDailyOrdersCSV = function() {
     return;
   }
   
-  const headers = ["Order ID", "Customer Email", "Date", "Items Purchased", "Grand Total (INR)", "Status", "Payment Method", "Payment ID"];
+  const headers = ["Order ID", "Channel", "Customer Email", "Date", "Items Purchased", "Grand Total (INR)", "Status", "Payment Method", "Payment ID"];
   
   const rows = filteredOrders.map(o => {
     const items = o.items.map(item => `${item.title} (x${item.qty})`).join('; ');
     const email = o.customer_email || o.customerEmail || 'N/A';
     const method = o.payment_method || 'Card';
     const paymentId = o.payment_id || 'N/A';
+    const isInstore = o.address === 'In-Store Checkout' || (o.payment_id && o.payment_id.startsWith('POS-'));
+    const channel = isInstore ? 'POS' : 'Online';
     
     return [
       o.id,
+      channel,
       email,
       o.date,
       items,
@@ -3285,7 +4184,11 @@ function openMockRazorpayModal(orderRes, orderPayload) {
 window.closeMockRzpModal = function() {
   const modal = document.getElementById('mock-rzp-modal');
   if (modal) modal.remove();
-  document.body.style.overflow = "";
+  if (state.posFullscreen && state.currentView === "admin") {
+    document.body.style.overflow = "hidden";
+  } else {
+    document.body.style.overflow = "";
+  }
 };
 
 window.switchMockRzpPane = function(pane) {
@@ -3508,7 +4411,11 @@ window.viewAdminOrderDetails = function(orderId) {
 window.closeAdminOrderDetailModal = function() {
   const modal = document.getElementById('admin-order-detail-modal');
   if (modal) modal.remove();
-  document.body.style.overflow = "";
+  if (state.posFullscreen && state.currentView === "admin") {
+    document.body.style.overflow = "hidden";
+  } else {
+    document.body.style.overflow = "";
+  }
 };
 
 window.printAdminOrderSlip = function(orderId) {

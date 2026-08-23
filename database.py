@@ -2,6 +2,7 @@ import sqlite3
 import json
 import hashlib
 from datetime import datetime
+from werkzeug.security import generate_password_hash, check_password_hash
 
 DB_PATH = 'hairah.db'
 
@@ -11,7 +12,7 @@ def get_db_connection():
     return conn
 
 def hash_password(password):
-    return hashlib.sha256(password.encode('utf-8')).hexdigest()
+    return generate_password_hash(password)
 
 def init_db():
     conn = get_db_connection()
@@ -427,11 +428,20 @@ def register_user(email, password, name):
 def authenticate_user(email, password):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute('SELECT * FROM users WHERE email = ? AND password_hash = ?', (email, hash_password(password)))
+    cursor.execute('SELECT * FROM users WHERE email = ?', (email,))
     user = cursor.fetchone()
     conn.close()
     if user:
-        return dict(user)
+        user_dict = dict(user)
+        stored_hash = user_dict['password_hash']
+        if stored_hash.startswith('pbkdf2:sha256:') or stored_hash.startswith('scrypt:'):
+            if check_password_hash(stored_hash, password):
+                return user_dict
+        else:
+            # Fallback check for old simple SHA-256 hashes during database transition
+            fallback_hash = hashlib.sha256(password.encode('utf-8')).hexdigest()
+            if stored_hash == fallback_hash:
+                return user_dict
     return None
 
 def get_user_by_email(email):
@@ -553,7 +563,7 @@ def get_orders_by_customer(email):
     conn.close()
     return orders
 
-def create_order(customer_email, recipient_name, address, city, phone, total, items, payment_id=None, payment_method='Card'):
+def create_order(customer_email, recipient_name, address, city, phone, total, items, payment_id=None, payment_method='Card', status='Processing'):
     conn = get_db_connection()
     cursor = conn.cursor()
     
@@ -569,6 +579,8 @@ def create_order(customer_email, recipient_name, address, city, phone, total, it
         # A. Verify and update stock counts for each size
         for item in items:
             p_id = item['id']
+            if p_id.startswith('custom-') or p_id.startswith('unlisted-'):
+                continue
             size = str(item['size'])
             qty = int(item['qty'])
             
@@ -594,8 +606,8 @@ def create_order(customer_email, recipient_name, address, city, phone, total, it
         # B. Insert order record
         cursor.execute('''
             INSERT INTO orders (id, customer_email, date, total, status, recipient_name, address, city, phone, payment_id, payment_method)
-            VALUES (?, ?, ?, ?, 'Processing', ?, ?, ?, ?, ?, ?)
-        ''', (order_id, customer_email, date_str, total, recipient_name, address, city, phone, payment_id, payment_method))
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (order_id, customer_email, date_str, total, status, recipient_name, address, city, phone, payment_id, payment_method))
         
         # C. Insert order items
         for item in items:

@@ -3,14 +3,62 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>HAIRAH Men's World | Premium Ready-made Menswear</title>
+  <title>HAIRAH Men's World | Luxury Ready-Made Menswear</title>
   
-  <!-- SEO Meta Tags -->
-  <meta name="description" content="Enter the world of HAIRAH Men's World. Discover premium ready-made luxury shirts, pants, and t-shirts for the modern gentleman. Experience digital elegance and premium fits.">
-  <meta name="keywords" content="menswear, luxury shirts, ready-made pants, pima cotton tshirts, ready-to-wear fashion, luxury menswear, premium clothing">
+  <!-- Primary SEO Meta Tags -->
+  <meta name="description" content="Discover luxury ready-made shirts, trousers, and cotton t-shirts for the modern gentleman at HAIRAH Men's World. Experience sartorial digital elegance and flawless fits.">
+  <meta name="keywords" content="menswear, luxury shirts, ready-made pants, pima cotton tshirts, ready-to-wear fashion, luxury menswear, sartorial menswear">
+  <meta name="author" content="HAIRAH Men's World">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="https://hairahmensworld.com/">
+
+  <!-- Open Graph / Facebook Social Protocol -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://hairahmensworld.com/">
+  <meta property="og:title" content="HAIRAH Men's World | Luxury Ready-Made Menswear">
+  <meta property="og:description" content="Discover luxury ready-made shirts, trousers, and cotton t-shirts for the modern gentleman. Digital sartorial elegance and tailored precision.">
+  <meta property="og:image" content="https://images.unsplash.com/photo-1617137968427-85924c800a22?auto=format&fit=crop&q=80&w=1200">
+
+  <!-- Twitter Card Data -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:url" content="https://hairahmensworld.com/">
+  <meta name="twitter:title" content="HAIRAH Men's World | Luxury Ready-Made Menswear">
+  <meta name="twitter:description" content="Discover luxury ready-made shirts, trousers, and cotton t-shirts for the modern gentleman. Digital sartorial elegance and tailored precision.">
+  <meta name="twitter:image" content="https://images.unsplash.com/photo-1617137968427-85924c800a22?auto=format&fit=crop&q=80&w=1200">
+
+  <!-- JSON-LD Structured Data Schema -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "ClothingStore",
+    "name": "HAIRAH Men's World",
+    "description": "Luxury ready-made shirts, trousers, and menswear apparel for the modern gentleman.",
+    "url": "https://hairahmensworld.com/",
+    "telephone": "+919876543210",
+    "priceRange": "₹₹",
+    "currenciesAccepted": "INR",
+    "paymentAccepted": "Cash, Credit Card, UPI",
+    "address": {
+      "@type": "PostalAddress",
+      "addressLocality": "Bengaluru",
+      "addressRegion": "KA",
+      "postalCode": "560001",
+      "addressCountry": "IN"
+    }
+  }
+  </script>
   
+  <!-- Fonts Preconnect & Styling -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link rel="preconnect" href="https://cdnjs.cloudflare.com">
+
   <!-- Font Awesome Icons -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <!-- Razorpay Official Mobile & Web Checkout SDK -->
+  <script src="https://checkout.razorpay.com/v1/checkout.js" async></script>
   
   <!-- Custom Styling -->
   <link rel="stylesheet" href="index.css">
@@ -166,6 +214,30 @@
       </div>
     </div>
   </footer>
+
+  <!-- App-Style Mobile Bottom Navigation Tab Bar (Growth Beacon Style) -->
+  <nav class="mobile-bottom-nav">
+    <a href="#" class="mobile-nav-item active" data-page="home">
+      <i class="fas fa-home mobile-nav-icon"></i>
+      <span>Home</span>
+    </a>
+    <a href="#" class="mobile-nav-item" data-page="shop">
+      <i class="fas fa-th-list mobile-nav-icon"></i>
+      <span>Shop</span>
+    </a>
+    <a href="#" class="mobile-nav-item" data-page="wishlist">
+      <i class="fas fa-heart mobile-nav-icon"></i>
+      <span>Wishlist</span>
+    </a>
+    <a href="#" class="mobile-nav-item" onclick="event.preventDefault(); openCartDrawer();">
+      <i class="fas fa-shopping-bag mobile-nav-icon"></i>
+      <span>Wardrobe</span>
+    </a>
+    <a href="#" class="mobile-nav-item" data-page="profile">
+      <i class="fas fa-user mobile-nav-icon"></i>
+      <span>Profile</span>
+    </a>
+  </nav>
 
   <!-- Application Logic -->
   <script src="index.js"></script>

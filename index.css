@@ -2,7 +2,6 @@
    HAIRAH MEN'S WORLD - PREMIUM LUXURY DESIGN SYSTEM
    ========================================================================== */
 
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600&display=swap');
 
 /* --- Theme Tokens --- */
 :root {
@@ -1666,7 +1665,8 @@ input:checked + .slider:before {
   
   .grid-two-col,
   .grid-two-col-uneven,
-  .admin-stats-ribbon {
+  .admin-stats-ribbon,
+  .pdp-grid {
     grid-template-columns: 1fr !important;
     gap: 1.5rem !important;
   }
@@ -1783,6 +1783,33 @@ input:checked + .slider:before {
     height: 38px !important;
     font-size: 1.05rem !important;
   }
+  footer {
+    padding: 3.5rem 1.5rem 7.5rem 1.5rem !important;
+    margin-top: 3.5rem !important;
+  }
+  .footer-grid {
+    grid-template-columns: 1fr !important;
+    gap: 2.5rem !important;
+    padding-bottom: 2.5rem !important;
+  }
+  .footer-logo-desc p {
+    max-width: 100% !important;
+  }
+  .footer-bottom {
+    flex-direction: column !important;
+    align-items: center !important;
+    gap: 1rem !important;
+    text-align: center !important;
+  }
+  .admin-table-wrapper {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+  .admin-table th, .admin-table td {
+    padding: 0.65rem 0.85rem !important;
+    font-size: 0.78rem !important;
+    white-space: nowrap;
+  }
 }
 
 /* --- Footer Styling --- */
@@ -1882,14 +1909,29 @@ footer {
 }
 
 @media (max-width: 576px) {
+  footer {
+    padding: 4rem 1.5rem 2.5rem 1.5rem !important;
+    margin-top: 4rem !important;
+  }
   .footer-grid {
-    grid-template-columns: 1fr;
-    gap: 2.5rem;
+    grid-template-columns: 1fr !important;
+    gap: 3rem !important;
+    padding-bottom: 3rem !important;
+  }
+  .footer-col {
+    text-align: center !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+  }
+  .footer-logo-desc p {
+    max-width: 100% !important;
   }
   .footer-bottom {
-    flex-direction: column;
-    text-align: center;
-    align-items: center;
+    flex-direction: column !important;
+    text-align: center !important;
+    align-items: center !important;
+    padding-top: 2.5rem !important;
   }
 }
 
@@ -2194,6 +2236,7 @@ footer {
     z-index: 10 !important;
   }
   .pdp-grid {
+    grid-template-columns: 1fr !important;
     gap: 1.5rem !important;
   }
   .pdp-main-img {
@@ -2234,36 +2277,82 @@ footer {
 }
 
 @media (max-width: 480px) {
+  .stripe-modal-content {
+    padding: 1.5rem 1.25rem !important;
+  }
+  :root {
+    --header-height: 72px !important;
+  }
   .nav-container {
-    padding: 0 1rem !important;
+    padding: 0 0.75rem !important;
   }
   .nav-actions {
-    gap: 0.75rem !important;
+    gap: 0.4rem !important;
   }
   .logo {
-    font-size: 1.15rem !important;
-    letter-spacing: 0.12em !important;
+    font-size: 1.05rem !important;
+    letter-spacing: 0.1em !important;
   }
   .logo-sub {
-    font-size: 0.5rem !important;
-    letter-spacing: 0.3em !important;
+    font-size: 0.45rem !important;
+    letter-spacing: 0.22em !important;
   }
   .nav-btn {
-    width: 36px !important;
-    height: 36px !important;
-    font-size: 1rem !important;
+    width: 32px !important;
+    height: 32px !important;
+    font-size: 0.85rem !important;
   }
   .hero {
     height: 75vh !important;
-    min-height: 450px !important;
-    padding: 1.5rem !important;
+    min-height: 420px !important;
+    padding: 1.5rem 1rem !important;
   }
   .hero-title {
-    font-size: 1.8rem !important;
+    font-size: 1.75rem !important;
   }
   .hero-tagline {
+    font-size: 0.7rem !important;
+    letter-spacing: 0.25em !important;
+  }
+  .filter-bar {
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 0.5rem !important;
+    gap: 0.4rem !important;
+  }
+  .filter-btn {
+    padding: 0.4rem 0.8rem !important;
+    font-size: 0.7rem !important;
+    white-space: nowrap !important;
+  }
+  .products-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 0.65rem !important;
+  }
+  .product-card {
+    padding: 0.65rem !important;
+  }
+  .product-info h3 {
     font-size: 0.75rem !important;
-    letter-spacing: 0.3em !important;
+    line-height: 1.25 !important;
+  }
+  .product-price {
+    font-size: 0.8rem !important;
+  }
+  .product-card-action .btn {
+    padding: 0.5rem 0.6rem !important;
+    font-size: 0.68rem !important;
+  }
+  .size-options {
+    gap: 0.35rem !important;
+  }
+  .size-btn {
+    padding: 0.45rem 0.7rem !important;
+    font-size: 0.7rem !important;
+  }
+  .pos-fullscreen-terminal-overlay {
+    padding: 1.5rem 1rem !important;
   }
 }
 
@@ -2317,5 +2406,228 @@ footer {
   .product-card:hover {
     transform: none !important;
     box-shadow: none !important;
+  }
+}
+
+/* --- POS Thermal Print Receipt Overrides --- */
+@media print {
+  body * {
+    visibility: hidden !important;
+  }
+  #pos-receipt-modal, #pos-receipt-modal * {
+    visibility: visible !important;
+  }
+  #pos-receipt-modal {
+    position: fixed !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    background: #fff !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+    display: flex !important;
+    justify-content: center !important;
+    align-items: flex-start !important;
+    z-index: 99999 !important;
+  }
+  #pos-receipt-modal .stripe-modal-content {
+    box-shadow: none !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+  #pos-receipt-modal button {
+    display: none !important;
+  }
+}
+
+/* ==========================================================================
+   APP-STYLE MOBILE BOTTOM NAVIGATION Tab Bar (Growth Beacon Style)
+   ========================================================================== */
+.mobile-bottom-nav {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  /* Hide header mobile hamburger toggle menu completely */
+  #mobile-menu-toggle {
+    display: none !important;
+  }
+
+  /* Show floating bottom navigation capsule bar */
+  .mobile-bottom-nav {
+    display: flex;
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: calc(100% - 40px);
+    max-width: 420px;
+    height: 64px;
+    background: rgba(18, 18, 18, 0.85);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--color-border);
+    border-radius: 32px;
+    z-index: 1050;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 15px rgba(212, 175, 55, 0.05);
+    justify-content: space-around;
+    align-items: center;
+    padding: 0 12px;
+    transition: all 0.3s ease;
+  }
+
+  .mobile-nav-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-text-muted);
+    text-decoration: none;
+    font-size: 0.65rem;
+    font-weight: 600;
+    gap: 4px;
+    width: 60px;
+    height: 100%;
+    transition: all 0.25s ease;
+    cursor: pointer;
+  }
+
+  .mobile-nav-icon {
+    font-size: 1.15rem;
+    transition: all 0.25s ease;
+  }
+
+  .mobile-nav-item.active {
+    color: var(--color-accent-gold);
+  }
+
+  .mobile-nav-item.active .mobile-nav-icon {
+    transform: scale(1.15);
+    filter: drop-shadow(0 0 5px rgba(212, 175, 55, 0.4));
+  }
+
+  /* Adjust page scrolling offset so bottom elements are not obscured */
+  body {
+    padding-bottom: 90px !important;
+  }
+}
+
+/* ==========================================================================
+   FULLSCREEN POS TERMINAL OVERLAYS & NATIVE INTEGRATION
+   ========================================================================== */
+body.pos-fullscreen-mode-active header,
+body.pos-fullscreen-mode-active footer,
+body.pos-fullscreen-mode-active .mobile-bottom-nav {
+  display: none !important;
+}
+
+body.pos-fullscreen-mode-active {
+  padding-bottom: 0 !important;
+  margin: 0 !important;
+  overflow: hidden !important;
+  background: var(--color-bg-base) !important;
+}
+
+.pos-fullscreen-terminal-overlay {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  background-color: var(--color-bg-base) !important;
+  z-index: 99999 !important;
+  overflow-y: auto !important;
+  padding: 2.5rem 2rem !important;
+}
+
+#pos-receipt-backdrop-wrapper,
+#pos-receipt-modal,
+#custom-pos-item-modal {
+  z-index: 100000 !important;
+}
+
+/* --- Luxury Page Enhancements & Steppers --- */
+.page-hero-banner {
+  background: linear-gradient(180deg, rgba(212, 175, 55, 0.08) 0%, rgba(10, 10, 10, 0) 100%), var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  padding: 3rem 2.5rem;
+  border-radius: 8px;
+  margin-bottom: 2.5rem;
+  position: relative;
+  overflow: hidden;
+}
+
+.page-hero-banner::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 250px;
+  height: 100%;
+  background: radial-gradient(circle at 100% 0%, rgba(212, 175, 55, 0.12), transparent 70%);
+  pointer-events: none;
+}
+
+.stepper-ribbon {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1.5rem;
+  margin-bottom: 3rem;
+  flex-wrap: wrap;
+}
+
+.stepper-step {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
+
+.stepper-step.active {
+  color: var(--color-accent-gold);
+  font-weight: 600;
+}
+
+.stepper-step-num {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+}
+
+.stepper-step.active .stepper-step-num {
+  background: var(--color-accent-gold);
+  color: #000;
+  border-color: var(--color-accent-gold);
+  font-weight: 700;
+}
+
+.auth-dual-grid {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 2.5rem;
+  align-items: center;
+}
+
+@media (max-width: 992px) {
+  .auth-dual-grid {
+    grid-template-columns: 1fr;
+    gap: 2rem;
   }
 }

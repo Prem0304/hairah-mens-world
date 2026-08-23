@@ -7,6 +7,10 @@ from werkzeug.utils import secure_filename
 app = Flask(__name__, static_folder='.')
 app.secret_key = 'hairah_mens_world_secret_luxury_key_2026'
 
+# Strict Session Cookie Security
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+
 # File upload configuration
 UPLOAD_FOLDER = 'assets'
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp'}
@@ -15,8 +19,26 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-# Enable CORS for local dev testing
+# Enable CORS for local dev testing (limited credentials)
 CORS(app, supports_credentials=True)
+
+# Inject strict security headers on all responses
+@app.after_request
+def add_security_headers(response):
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    # Strict Content-Security-Policy (CSP) with Razorpay SDK & Mobile Checkout permissions
+    response.headers['Content-Security-Policy'] = (
+        "default-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com https://cdnjs.cloudflare.com https://images.unsplash.com https://api.razorpay.com https://checkout.razorpay.com; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; "
+        "script-src 'self' 'unsafe-inline' https://checkout.razorpay.com https://api.razorpay.com; "
+        "img-src 'self' data: https://images.unsplash.com https://images.razorpay.com https://checkout.razorpay.com; "
+        "frame-src 'self' https://checkout.razorpay.com https://api.razorpay.com; "
+        "connect-src 'self' https://api.razorpay.com https://lumberjack.razorpay.com https://checkout.razorpay.com;"
+    )
+    return response
 
 # Initialize database schemas and seed data on startup
 database.init_db()
@@ -370,6 +392,47 @@ def api_update_order_status(order_id):
     database.update_order_status(order_id, data['status'])
     return jsonify({"message": f"Order status updated to {data['status']}"}), 200
 
+@app.route('/api/pos/orders', methods=['POST'])
+def api_pos_place_order():
+    if session.get('user_role') != 'admin':
+        return jsonify({"error": "Forbidden"}), 403
+        
+    data = request.json
+    if not data or 'items' not in data or 'total' not in data:
+        return jsonify({"error": "Missing POS transaction details"}), 400
+        
+    customer_email = data.get('recipientEmail', 'walkin@hairah.com').strip().lower()
+    if not customer_email:
+        customer_email = 'walkin@hairah.com'
+    recipient_name = data.get('recipientName', 'Walk-In Customer').strip()
+    if not recipient_name:
+        recipient_name = 'Walk-In Customer'
+    address = data.get('address', 'In-Store Checkout').strip()
+    city = data.get('city', 'Bengaluru').strip()
+    phone = data.get('phone', 'N/A').strip()
+    payment_method = data.get('paymentMethod', 'Cash')
+    payment_id = data.get('paymentId', 'POS-CASH' if payment_method == 'Cash' else 'POS-UPI')
+    
+    try:
+        order_id = database.create_order(
+            customer_email=customer_email,
+            recipient_name=recipient_name,
+            address=address,
+            city=city,
+            phone=phone,
+            total=float(data['total']),
+            items=data['items'],
+            payment_id=payment_id,
+            payment_method=payment_method,
+            status='Delivered'
+        )
+        return jsonify({"orderId": order_id, "message": "POS Order checked out successfully"}), 201
+    except Exception as e:
+        error_msg = str(e)
+        if "Insufficient stock" in error_msg or "Sizing stock record" in error_msg:
+            return jsonify({"error": error_msg}), 400
+        return jsonify({"error": error_msg}), 500
+
 # --- Wishlist Endpoints ---
 
 @app.route('/api/wishlist', methods=['GET'])
@@ -671,6 +734,15 @@ def api_admin_delete_coupon():
         return jsonify({"error": "Missing coupon code"}), 400
     database.delete_coupon(data['code'])
     return jsonify({"message": "Coupon deleted successfully"}), 200
+
+# Explicit Error Handlers for SEO & API Integrity
+@app.errorhandler(404)
+def not_found_error(error):
+    return jsonify({"error": "Resource not found", "code": 404}), 404
+
+@app.errorhandler(500)
+def internal_error(error):
+    return jsonify({"error": "Internal server error", "code": 500}), 500
 
 
 if __name__ == '__main__':
