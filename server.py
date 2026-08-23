@@ -38,6 +38,13 @@ def add_security_headers(response):
         "frame-src 'self' https://checkout.razorpay.com https://api.razorpay.com; "
         "connect-src 'self' https://api.razorpay.com https://lumberjack.razorpay.com https://checkout.razorpay.com;"
     )
+    # Ensure index.js and HTML pages are never cached statically by browser
+    if request.path.endswith('.js') or request.path.endswith('.html') or request.path == '/':
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+    elif request.path.startswith('/assets/') or request.path.endswith('.css'):
+        response.headers['Cache-Control'] = 'public, max-age=86400, must-revalidate'
     return response
 
 # Initialize database schemas and seed data on startup

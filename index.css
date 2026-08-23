@@ -2631,3 +2631,186 @@ body.pos-fullscreen-mode-active {
     gap: 2rem;
   }
 }
+
+/* --- Luxury Scrollbar Styling --- */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-bg-base);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(212, 175, 55, 0.25);
+  border-radius: 4px;
+  border: 2px solid var(--color-bg-base);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-accent-gold);
+}
+
+/* --- Skeleton Shimmer Animation --- */
+.skeleton-card {
+  background: linear-gradient(90deg, var(--color-bg-card) 25%, rgba(255, 255, 255, 0.05) 50%, var(--color-bg-card) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite linear;
+  border-radius: 6px;
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* --- Pulsing Status Indicator --- */
+.pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #4cd964;
+  display: inline-block;
+  box-shadow: 0 0 0 rgba(76, 217, 100, 0.4);
+  animation: pulseGlow 2s infinite;
+}
+
+@keyframes pulseGlow {
+  0% {
+    box-shadow: 0 0 0 0 rgba(76, 217, 100, 0.7);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgba(76, 217, 100, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(76, 217, 100, 0);
+  }
+}
+
+/* ==========================================================================
+   Mobile Responsiveness Overhauls: Admin Portal & Customer Profile
+   ========================================================================== */
+
+@media (max-width: 992px) {
+  .admin-layout, .profile-layout {
+    padding: 2.5rem 1.5rem !important;
+  }
+  .profile-grid {
+    grid-template-columns: 1fr !important;
+    gap: 2rem !important;
+  }
+  .profile-menu {
+    border-right: none !important;
+    border-bottom: 1px solid var(--color-border) !important;
+    flex-direction: row !important;
+    padding-right: 0 !important;
+    padding-bottom: 1rem !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+  .profile-menu-item {
+    padding: 0.75rem 1.25rem !important;
+    white-space: nowrap !important;
+    border-radius: 4px;
+  }
+  .profile-content-pane {
+    padding: 2rem 1.5rem !important;
+  }
+  .admin-header {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 1.25rem !important;
+    margin-bottom: 2rem !important;
+  }
+  .admin-stats-ribbon {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 1rem !important;
+  }
+  .pos-grid {
+    grid-template-columns: 1fr !important;
+    gap: 1.5rem !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .admin-layout, .profile-layout {
+    padding: 1.5rem 1rem !important;
+  }
+  .profile-layout h2, .admin-layout h2 {
+    font-size: 1.6rem !important;
+    margin-bottom: 1.5rem !important;
+  }
+  .profile-content-pane {
+    padding: 1.25rem 1rem !important;
+    border-radius: 8px !important;
+  }
+  .admin-tabs {
+    display: flex !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    gap: 0.4rem !important;
+    padding-bottom: 0.6rem !important;
+    margin-bottom: 1.5rem !important;
+    border-bottom: 1px solid var(--color-border) !important;
+    flex-wrap: nowrap !important;
+  }
+  .admin-tab {
+    padding: 0.6rem 1rem !important;
+    font-size: 0.75rem !important;
+    white-space: nowrap !important;
+    text-align: center !important;
+    flex-shrink: 0 !important;
+    border-radius: 4px !important;
+  }
+  .admin-stats-ribbon {
+    grid-template-columns: 1fr !important;
+    gap: 0.85rem !important;
+  }
+  .admin-stats-ribbon .glass-panel {
+    padding: 1.2rem 1rem !important;
+  }
+  .admin-table-wrapper {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    border-radius: 8px !important;
+    margin-top: 1rem !important;
+  }
+  .admin-table th, .admin-table td {
+    padding: 0.65rem 0.75rem !important;
+    font-size: 0.75rem !important;
+    white-space: nowrap !important;
+  }
+  .order-card-header {
+    padding: 1rem !important;
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 0.6rem !important;
+  }
+  .order-card-body {
+    padding: 1rem !important;
+    font-size: 0.82rem !important;
+  }
+  .order-card-body ul {
+    margin-left: 1rem !important;
+    margin-bottom: 1rem !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .admin-layout, .profile-layout {
+    padding: 1rem 0.75rem !important;
+  }
+  .admin-header h2 {
+    font-size: 1.35rem !important;
+  }
+  .profile-menu-item {
+    font-size: 0.7rem !important;
+    padding: 0.5rem 0.85rem !important;
+  }
+  .admin-table th, .admin-table td {
+    font-size: 0.7rem !important;
+    padding: 0.5rem 0.6rem !important;
+  }
+  .admin-pane-stats button {
+    width: 100% !important;
+    justify-content: center !important;
+  }
+}

@@ -34,7 +34,8 @@ let state = {
   posPaymentMethod: "Cash",
   posIncludeGST: true,
   posFullscreen: false,
-  adminOrderSearchQuery: ""
+  adminOrderSearchQuery: "",
+  checkoutFormData: { name: "", email: "", address: "", city: "", zip: "", phone: "" }
 };
 
 // --- DOM References ---
@@ -158,6 +159,32 @@ document.addEventListener("DOMContentLoaded", async () => {
       state.posFullscreen = false;
       document.body.classList.remove("pos-fullscreen-mode-active");
       renderCurrentView();
+    }
+  });
+
+  // Global Keyboard Shortcuts (Ctrl+K / Cmd+K for search)
+  document.addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+      e.preventDefault();
+      const catalogSearch = document.getElementById("catalog-search");
+      const posSearch = document.getElementById("pos-product-search");
+      const adminSearch = document.getElementById("admin-order-search-box");
+      if (catalogSearch && state.currentView === 'shop') {
+        catalogSearch.focus();
+        catalogSearch.select();
+      } else if (posSearch && state.currentView === 'admin' && state.adminActiveTab === 'pos') {
+        posSearch.focus();
+        posSearch.select();
+      } else if (adminSearch && state.currentView === 'admin' && state.adminActiveTab === 'stats') {
+        adminSearch.focus();
+        adminSearch.select();
+      } else {
+        navigate('shop');
+        setTimeout(() => {
+          const searchInput = document.getElementById("catalog-search");
+          if (searchInput) searchInput.focus();
+        }, 150);
+      }
     }
   });
   
@@ -470,7 +497,7 @@ function getHomeTemplate() {
     <!-- HAIRAH Club Instagram Invitation -->
     <div class="club-invite-section" style="max-width: var(--max-width); margin: 4rem auto 1rem auto; padding: 0 1.5rem;">
       <div class="glass-panel" style="padding: 3.5rem 2rem; text-align: center; border-radius: 8px; background-color: var(--color-bg-card); border: 1px solid var(--color-border); box-shadow: 0 10px 30px rgba(0,0,0,0.3); animation: fadeIn 0.4s ease-out;">
-        <span style="font-family: var(--font-display); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.2em; color: var(--color-accent-gold); font-weight: 600; display: block; margin-bottom: 0.8rem;">Sartorial Club Invitation</span>
+        <span style="font-family: var(--font-display); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.2em; color: var(--color-accent-gold); font-weight: 600; display: block; margin-bottom: 0.8rem;">Instagram Journal</span>
         <h3 style="font-family: var(--font-display); font-size: 1.8rem; font-weight: 300; margin-bottom: 1rem; letter-spacing: 0.05em; color: var(--color-text-main);">Join the HAIRAH Circle</h3>
         <p style="color: var(--color-text-muted); font-size: 0.85rem; max-width: 600px; margin: 0 auto 2rem auto; line-height: 1.6;">
           Follow our official Instagram journal to receive real-time updates on limited textile releases, private collection previews, and customer bespoke styling features.
@@ -545,20 +572,6 @@ function getShopTemplate() {
 
   return `
     <div class="catalog-layout">
-      <!-- Luxury Hero Banner for Shop -->
-      <div class="page-hero-banner">
-        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1.5rem;">
-          <div>
-            <div style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.25em; color:var(--color-accent-gold); font-weight:600; margin-bottom:0.5rem;">HAIRAH Ready-to-Wear Catalog</div>
-            <h2 style="font-size:2.2rem; font-weight:300; margin:0;">Luxury Menswear Collection</h2>
-            <p style="color:var(--color-text-muted); font-size:0.9rem; margin-top:0.4rem; max-width:600px;">Structured French cuff shirts, double-pleated wool trousers, and Mulberry silk & long-staple Pima cotton knits.</p>
-          </div>
-          <div class="badge" style="background:rgba(212,175,55,0.1); border:1px solid rgba(212,175,55,0.3); color:var(--color-accent-gold); padding:0.6rem 1.2rem; font-size:0.8rem; font-weight:600;">
-            <i class="fas fa-gem" style="margin-right:0.4rem;"></i> ${filtered.length} Premium Selections
-          </div>
-        </div>
-      </div>
-
       <div class="filter-bar">
         <div class="filter-tabs">
           <span class="filter-tab ${state.activeFilter === 'all' ? 'active' : ''}" onclick="setFilter('all')">All Attire</span>
@@ -635,9 +648,9 @@ function getWishlistTemplate() {
           </div>
           <h2 style="font-size: 2.2rem; font-weight: 300; margin: 0;">Your Saved Wardrobe is Empty</h2>
           <p style="color: var(--color-text-muted); margin: 1rem 0 2.5rem 0; font-size: 0.95rem; line-height: 1.6;">
-            Save your favorite ready-made shirts, trousers, and Pima cotton t-shirts to build your personal sartorial collection for easy access.
+            Save your favorite ready-made shirts, trousers, and Pima cotton t-shirts to build your personal wardrobe collection for easy access.
           </p>
-          <button class="btn btn-primary" onclick="navigate('shop')" style="padding: 0.9rem 2.5rem;">Explore Ready-to-Wear Catalog</button>
+          <button class="btn btn-primary" onclick="navigate('shop')" style="padding: 0.9rem 2.5rem;">Explore Shop Catalog</button>
         </div>
       </div>
     `;
@@ -747,8 +760,12 @@ function getCheckoutTemplate() {
   const shipping = 15.00;
   const grandTotal = Math.max(0, subtotal - discount + vat + shipping);
 
-  const cName = state.currentUser ? state.currentUser.name : '';
-  const cEmail = state.currentUser ? state.currentUser.email : '';
+  const cName = state.checkoutFormData.name || (state.currentUser ? state.currentUser.name : '');
+  const cEmail = state.checkoutFormData.email || (state.currentUser ? state.currentUser.email : '');
+  const cAddress = state.checkoutFormData.address || '';
+  const cCity = state.checkoutFormData.city || '';
+  const cZip = state.checkoutFormData.zip || '';
+  const cPhone = state.checkoutFormData.phone || '';
 
   let warningBanner = '';
   if (hasStockIssue) {
@@ -810,17 +827,17 @@ function getCheckoutTemplate() {
             
             <div class="form-group">
               <label>Delivery Address</label>
-              <input type="text" class="form-input" id="co-address" placeholder="Street address, apartment, suite" required>
+              <input type="text" class="form-input" id="co-address" value="${cAddress}" placeholder="Street address, apartment, suite" required>
             </div>
             
             <div class="form-row">
               <div class="form-group">
                 <label>City & Country</label>
-                <input type="text" class="form-input" id="co-city" placeholder="e.g. Mumbai, India" required>
+                <input type="text" class="form-input" id="co-city" value="${cCity}" placeholder="e.g. Mumbai, India" required>
               </div>
               <div class="form-group">
                 <label>Zip / PIN Code</label>
-                <input type="text" class="form-input" id="co-zip" placeholder="e.g. 400001" maxlength="6" required>
+                <input type="text" class="form-input" id="co-zip" value="${cZip}" placeholder="e.g. 400001" maxlength="6" required>
                 <span id="co-zip-err" style="font-size: 0.7rem; color: var(--color-danger); display: block; margin-top: 0.35rem; min-height: 1rem; font-weight: 500;"></span>
               </div>
             </div>
@@ -828,7 +845,7 @@ function getCheckoutTemplate() {
             <div class="form-row">
               <div class="form-group">
                 <label>Contact Phone (India)</label>
-                <input type="tel" class="form-input" id="co-phone" placeholder="e.g. +91 98765 43210" required>
+                <input type="tel" class="form-input" id="co-phone" value="${cPhone}" placeholder="e.g. +91 98765 43210" required>
                 <span id="co-phone-err" style="font-size: 0.7rem; color: var(--color-danger); display: block; margin-top: 0.35rem; min-height: 1rem; font-weight: 500;"></span>
               </div>
               <div class="form-group" style="opacity: 0; pointer-events: none; height: 0; padding: 0; margin: 0;">
@@ -904,84 +921,48 @@ function getCheckoutTemplate() {
 // 5. Login Template
 function getLoginTemplate() {
   return `
-    <div class="catalog-layout" style="max-width: 950px; margin: 0 auto; padding: 3rem 1.5rem;">
-      <div class="auth-dual-grid">
-        <div style="padding-right: 1rem;">
-          <div style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.25em; color:var(--color-accent-gold); font-weight:600; margin-bottom:0.6rem;">HAIRAH Sartorial Club</div>
-          <h2 style="font-size:2.2rem; font-weight:300; margin:0 0 1rem 0;">Gentleman's Portal</h2>
-          <p style="color:var(--color-text-muted); font-size:0.9rem; line-height:1.6; margin-bottom:2rem;">
-            Access your saved sizing fit profiles, order histories, and seamless express checkouts.
-          </p>
-          
-          <div style="display:flex; flex-direction:column; gap:1.2rem;">
-            <div style="display:flex; gap:1rem; align-items:center;">
-              <div style="width:36px; height:36px; border-radius:50%; background:rgba(212,175,55,0.1); border:1px solid rgba(212,175,55,0.3); display:flex; align-items:center; justify-content:center; color:var(--color-accent-gold); font-size:0.9rem; shrink: 0;"><i class="fas fa-ruler-combined"></i></div>
-              <div>
-                <div style="font-size:0.85rem; font-weight:600;">Saved Sizing Profile</div>
-                <div style="font-size:0.75rem; color:var(--color-text-muted);">Store your chest, waist & fit metrics once.</div>
-              </div>
-            </div>
-            <div style="display:flex; gap:1rem; align-items:center;">
-              <div style="width:36px; height:36px; border-radius:50%; background:rgba(212,175,55,0.1); border:1px solid rgba(212,175,55,0.3); display:flex; align-items:center; justify-content:center; color:var(--color-accent-gold); font-size:0.9rem; shrink: 0;"><i class="fas fa-truck-fast"></i></div>
-              <div>
-                <div style="font-size:0.85rem; font-weight:600;">Real-Time Shipment Tracking</div>
-                <div style="font-size:0.75rem; color:var(--color-text-muted);">Monitor order dispatch and delivery status.</div>
-              </div>
-            </div>
-            <div style="display:flex; gap:1rem; align-items:center;">
-              <div style="width:36px; height:36px; border-radius:50%; background:rgba(212,175,55,0.1); border:1px solid rgba(212,175,55,0.3); display:flex; align-items:center; justify-content:center; color:var(--color-accent-gold); font-size:0.9rem; shrink: 0;"><i class="fas fa-shield-alt"></i></div>
-              <div>
-                <div style="font-size:0.85rem; font-weight:600;">Encrypted Account Security</div>
-                <div style="font-size:0.75rem; color:var(--color-text-muted);">Strict privacy and session protection.</div>
-              </div>
-            </div>
+    <div class="auth-layout glass-panel">
+      <div class="admin-tabs" style="margin-bottom: 2rem; border-bottom: 1px solid var(--color-border);">
+        <div class="admin-tab active" id="auth-tab-login" onclick="switchAuthTab('login')" style="flex: 1; text-align: center; padding: 1rem 0;">Sign In</div>
+        <div class="admin-tab" id="auth-tab-register" onclick="switchAuthTab('register')" style="flex: 1; text-align: center; padding: 1rem 0;">Register</div>
+      </div>
+      
+      <div id="auth-pane-login">
+        <h2 class="auth-title">Sign In</h2>
+        <form onsubmit="handleAuthLogin(event)">
+          <div class="form-group">
+            <label>Email Address</label>
+            <input type="email" class="form-input" id="login-email" placeholder="customer@hairah.com / admin@hairah.com" required>
           </div>
+          <div class="form-group">
+            <label>Password</label>
+            <input type="password" class="form-input" id="login-password" placeholder="password / admin123" required>
+          </div>
+          <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 1.5rem;">Access Account</button>
+        </form>
+        <div class="auth-switch-link" style="margin-top: 2rem;">
+          <p>Customer Demo: <code style="color:var(--color-accent-gold);">customer@hairah.com</code> / <code style="color:var(--color-accent-gold);">password</code></p>
+          <p style="margin-top: 0.5rem;">Admin Demo: <code style="color:var(--color-accent-gold);">admin@hairah.com</code> / <code style="color:var(--color-accent-gold);">admin123</code></p>
         </div>
-
-        <div class="auth-layout glass-panel" style="margin: 0; width: 100%;">
-          <div class="admin-tabs" style="margin-bottom: 2rem; border-bottom: 1px solid var(--color-border);">
-            <div class="admin-tab active" id="auth-tab-login" onclick="switchAuthTab('login')" style="flex: 1; text-align: center; padding: 1rem 0;">Sign In</div>
-            <div class="admin-tab" id="auth-tab-register" onclick="switchAuthTab('register')" style="flex: 1; text-align: center; padding: 1rem 0;">Register</div>
+      </div>
+      
+      <div id="auth-pane-register" style="display: none;">
+        <h2 class="auth-title">Register Account</h2>
+        <form onsubmit="handleAuthRegister(event)">
+          <div class="form-group">
+            <label>Full Name</label>
+            <input type="text" class="form-input" id="reg-name" placeholder="Johnathan Doe" required>
           </div>
-          
-          <div id="auth-pane-login">
-            <h2 class="auth-title">Sign In</h2>
-            <form onsubmit="handleAuthLogin(event)">
-              <div class="form-group">
-                <label>Email Address</label>
-                <input type="email" class="form-input" id="login-email" placeholder="customer@hairah.com / admin@hairah.com" required>
-              </div>
-              <div class="form-group">
-                <label>Password</label>
-                <input type="password" class="form-input" id="login-password" placeholder="password / admin123" required>
-              </div>
-              <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 1.5rem;">Access Account</button>
-            </form>
-            <div class="auth-switch-link" style="margin-top: 2rem;">
-              <p>Customer Demo: <code style="color:var(--color-accent-gold);">customer@hairah.com</code> / <code style="color:var(--color-accent-gold);">password</code></p>
-              <p style="margin-top: 0.5rem;">Admin Demo: <code style="color:var(--color-accent-gold);">admin@hairah.com</code> / <code style="color:var(--color-accent-gold);">admin123</code></p>
-            </div>
+          <div class="form-group">
+            <label>Email Address</label>
+            <input type="email" class="form-input" id="reg-email" required>
           </div>
-          
-          <div id="auth-pane-register" style="display: none;">
-            <h2 class="auth-title">Register Account</h2>
-            <form onsubmit="handleAuthRegister(event)">
-              <div class="form-group">
-                <label>Full Name</label>
-                <input type="text" class="form-input" id="reg-name" placeholder="Johnathan Doe" required>
-              </div>
-              <div class="form-group">
-                <label>Email Address</label>
-                <input type="email" class="form-input" id="reg-email" required>
-              </div>
-              <div class="form-group">
-                <label>Choose Password</label>
-                <input type="password" class="form-input" id="reg-password" minlength="4" required>
-              </div>
-              <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 1.5rem;">Create Account</button>
-            </form>
+          <div class="form-group">
+            <label>Choose Password</label>
+            <input type="password" class="form-input" id="reg-password" minlength="4" required>
           </div>
-        </div>
+          <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 1.5rem;">Create Account</button>
+        </form>
       </div>
     </div>
   `;
@@ -1034,7 +1015,7 @@ function getProfileTemplate() {
 
   return `
     <div class="profile-layout">
-      <h2 style="font-size: 2.2rem; font-weight: 300; margin-bottom: 3.5rem;">Sartorial Account Profile</h2>
+      <h2 style="font-size: 2.2rem; font-weight: 300; margin-bottom: 3.5rem;">My Account Profile</h2>
       
       <div class="profile-grid">
         <div class="profile-menu">
@@ -4580,8 +4561,29 @@ window.printAdminOrderSlip = function(orderId) {
   printWindow.document.close();
 };
 
+function saveCurrentCheckoutFormData() {
+  const nameEl = document.getElementById("co-name");
+  const emailEl = document.getElementById("co-email");
+  const addressEl = document.getElementById("co-address");
+  const cityEl = document.getElementById("co-city");
+  const zipEl = document.getElementById("co-zip");
+  const phoneEl = document.getElementById("co-phone");
+
+  if (nameEl || emailEl || addressEl || cityEl || zipEl || phoneEl) {
+    state.checkoutFormData = {
+      name: nameEl ? nameEl.value : (state.checkoutFormData.name || ''),
+      email: emailEl ? emailEl.value : (state.checkoutFormData.email || ''),
+      address: addressEl ? addressEl.value : (state.checkoutFormData.address || ''),
+      city: cityEl ? cityEl.value : (state.checkoutFormData.city || ''),
+      zip: zipEl ? zipEl.value : (state.checkoutFormData.zip || ''),
+      phone: phoneEl ? phoneEl.value : (state.checkoutFormData.phone || '')
+    };
+  }
+}
+
 window.applyCoupon = async function(event) {
   event.preventDefault();
+  saveCurrentCheckoutFormData();
   const input = document.getElementById("coupon-code-input");
   const msgDiv = document.getElementById("coupon-message");
   if (!input) return;
@@ -4613,6 +4615,7 @@ window.applyCoupon = async function(event) {
 
 window.removeCoupon = function(event) {
   event.preventDefault();
+  saveCurrentCheckoutFormData();
   state.appliedCoupon = null;
   showToast("Promo coupon removed.");
   navigate('checkout'); // re-render checkout
